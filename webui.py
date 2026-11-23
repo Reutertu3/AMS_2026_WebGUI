@@ -228,6 +228,10 @@ class Bridge(Node):
         return f'maps/{name}.pgm ({w}x{h} cells, {w * m.info.resolution:.1f} x {h * m.info.resolution:.1f} m)'
 
     def busy(self):
+        # a calibration whose answer never came (robot rebooted, WiFi lost) must not block forever
+        if self.calib['state'] == 'running' and time.monotonic() > self.calib.get('deadline', math.inf):
+            self.calib = {'state': 'error', 'msg': 'no answer from the robot (rebooted? WiFi?), try again'}
+            print('gyro calibration: no answer, given up', flush=True)
         if self.script.running():
             return f'script {self.script.name} is running'
         if self.calib['state'] == 'running':
@@ -270,10 +274,13 @@ class Bridge(Node):
         self.stop_now()  # the robot has to stand still
         req = CalibrateGyro.Request()
         req.time = max(1, min(255, int(seconds)))
-        self.calib = {'state': 'running', 'msg': f'calibrating for {req.time} s, keep the robot still'}
+        self.calib = {'state': 'running', 'msg': f'calibrating for {req.time} s, keep the robot still',
+                      'deadline': time.monotonic() + req.time + 10}
         self.calib_client.call_async(req).add_done_callback(self.on_calibrated)
 
     def on_calibrated(self, future):
+        if self.calib['state'] != 'running':
+            return  # answer came after we gave up
         try:
             o = future.result().offsets
             self.calib = {'state': 'done', 'msg': f'offsets x={o.x:.5f} y={o.y:.5f} z={o.z:.5f}'}
@@ -328,9 +335,11 @@ class Bridge(Node):
         now = time.monotonic()
         scan_age = now - self.scan_time if self.scan else None
         scan_hz = sum(1 for t in self.scan_times if now - t < 2) / 2
+        busy = self.busy()  # also ends a calibration that timed out
+        calib = {k: v for k, v in self.calib.items() if k != 'deadline'}
         return {'pose': pose, 'source': source, 'frame': frame, 'map_seq': self.map_seq,
-                'map_age': now - self.map_time if self.map else None, 'cmd': cmd, 'scan': self.scan, 'calib': self.calib,
-                'scan_hz': scan_hz, 'scan_age': scan_age, 'busy': self.busy(),
+                'map_age': now - self.map_time if self.map else None, 'cmd': cmd, 'scan': self.scan, 'calib': calib,
+                'scan_hz': scan_hz, 'scan_age': scan_age, 'busy': busy,
                 'domain': int(os.environ.get('ROS_DOMAIN_ID', 0)), 'script': self.script.state(log_since, run_id)}
 
 

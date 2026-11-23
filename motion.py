@@ -269,21 +269,26 @@ def get_map_pose():
     return None if p is None else (p[0], p[1], math.degrees(p[2]))
 
 
-def goto_map(vel, x, y, ramp=True, stop_distance=0.3, forward_only=False, turn_speed=25):
+def goto_map(vel, x, y, ramp=True, forward_only=False, turn_speed=25, look_ahead=0.2, clearance=0.03,
+             turn_clearance=0.02):
     """Drive to (x, y) on the SLAM map. Returns True when arrived, False if blocked, timed out or no SLAM.
-    Stops early if the lidar sees something closer than stop_distance m in the driving direction.
 
     forward_only=False: straight there without turning (strafing as needed).
     forward_only=True:  turn on the spot towards the target (turn_speed degrees/s), then drive forward
                         with small steering corrections. Least wheel slip = least odometry error, best
-                        for mapping (mecanum wheels slip most when strafing)."""
+                        for mapping (mecanum wheels slip most when strafing).
+    Collision check with the lidar and the robot's size (core.ROBOT_LENGTH / ROBOT_WIDTH):
+      driving: stops if something is in the strip the robot sweeps in the next look_ahead m
+               (robot width + clearance on each side)
+      turning: doesn't turn if something is inside the circle the corners sweep (+ turn_clearance);
+               then it backs up 10 cm (if free behind) and tries again once"""
     speed = abs(vel)
     p = _wait_map_pose()
     if p is None:
         print('goto_map: no SLAM map pose (./start.sh --slam)', flush=True)
         return False
     dist0 = math.hypot(x - p[0], y - p[1])
-    s = {'blocked': False, 'last': dist0, 'turning': forward_only, 'start': dist0}
+    s = {'blocked': False, 'last': dist0, 'turning': forward_only, 'start': dist0, 'backed_up': False}
 
     def step():
         p = core._map_pose()
@@ -309,11 +314,14 @@ def goto_map(vel, x, y, ramp=True, stop_distance=0.3, forward_only=False, turn_s
                 s['settle'] = now + core.LATENCY
                 return 0, 0, 0  # stop at once: otherwise the turn would go on until the next command
             if s['turning']:
+                if core._turn_blocked(turn_clearance):
+                    s['blocked'] = 'turn'
+                    return None
                 turn = math.copysign(min(turn_speed, max(MIN_ANGULAR, abs(err) * 1.5)), err)  # slower when close
                 return 0, 0, turn
-            d = 0.0  # obstacle check: only straight ahead
-        if core._obstacle_ahead(d, stop_distance):
-            print(f'goto_map: obstacle within {stop_distance} m, stopped', flush=True)
+            d = 0.0  # driving straight ahead
+        if core._path_blocked(d, look_ahead, clearance):
+            print('goto_map: obstacle in the way, stopped', flush=True)
             s['blocked'] = True
             return None
         f = core._ramp_factor(s['start'] - dist, dist, speed, LINEAR_ACCEL, MIN_LINEAR) if ramp else 1
@@ -323,5 +331,14 @@ def goto_map(vel, x, y, ramp=True, stop_distance=0.3, forward_only=False, turn_s
         return speed * f * math.cos(d), speed * f * math.sin(d), 0
 
     timeout = core._timeout(dist0, speed) + (360 / turn_speed if forward_only else 0)  # + time for turning
-    finished = core._run_move('target', timeout, step)
-    return finished and not s['blocked']
+    while True:
+        finished = core._run_move('target', timeout, step)
+        if s['blocked'] == 'turn' and not s['backed_up'] and not core._path_blocked(math.pi, 0.12, clearance):
+            print('goto_map: too close to turn, backing up 10 cm', flush=True)
+            s['backed_up'] = True
+            backward(min(speed, 0.08), 0.10)
+            s.update(blocked=False, turning=True, last=math.inf)
+            continue
+        if s['blocked'] == 'turn':
+            print('goto_map: too close to something to turn, stopped', flush=True)
+        return finished and not s['blocked']

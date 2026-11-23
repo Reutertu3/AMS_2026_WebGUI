@@ -21,6 +21,19 @@ import explore
 from motion import *
 
 DRIVE = True            # False: only plan and print, the robot doesn't move
+
+# ---- the robot ----
+ROBOT_LENGTH = 0.26     # m, front to back
+ROBOT_WIDTH = 0.18      # m, side to side
+LIDAR_X = 0.0           # m, lidar in front of the robot's centre (0 = mounted in the centre)
+# Clearances. Driving straight needs the robot's width, turning on the spot the circle its corners sweep
+# (sqrt(0.13² + 0.09²) = 0.16 m), so passages need 2 * (ROBOT_WIDTH/2 + PLAN_MARGIN) = 0.30 m, and the
+# robot only turns where that circle + TURN_CLEARANCE is free.
+PLAN_MARGIN = 0.06      # m, planned paths keep this much between the robot's side and walls
+TURN_CLEARANCE = 0.02   # m, free space around the turning circle (planning and live lidar check)
+DRIVE_CLEARANCE = 0.03  # m, live lidar check: free space beside the robot while driving
+LOOK_AHEAD = 0.20       # m, live lidar check: free space in front of the robot while driving
+
 SPEED = 0.12            # m/s, slow = clean map
 TURN = 25               # degrees/s for turning on the spot
 # The robot only turns on the spot and drives forward (no strafing): least wheel slip = least map error.
@@ -31,6 +44,12 @@ WAYPOINTS_PER_PLAN = 3  # drive this many corners of a path, then plan again wit
 MAX_ROUNDS = 60         # safety limit
 SETTLE = 3.0            # s to wait before planning: SLAM publishes the map every 3 s
 SAVE_AS = 'mapping_' + time.strftime('%Y%m%d_%H%M')
+
+# hand the sizes to the planner (explore.py) and to the lidar collision check (edurobot.py)
+explore.HALF_WIDTH = ROBOT_WIDTH / 2
+explore.MARGIN = PLAN_MARGIN
+explore.TURN_RADIUS = math.hypot(ROBOT_LENGTH / 2, ROBOT_WIDTH / 2) + TURN_CLEARANCE
+core.ROBOT_LENGTH, core.ROBOT_WIDTH, core.LIDAR_X = ROBOT_LENGTH, ROBOT_WIDTH, LIDAR_X
 
 # ---- the live SLAM map ----
 latest = {}
@@ -86,7 +105,8 @@ for round_no in range(1, MAX_ROUNDS + 1):
     if not DRIVE:
         break
     for wx, wy in waypoints[:WAYPOINTS_PER_PLAN]:
-        if not goto_map(SPEED, wx, wy, forward_only=True, turn_speed=TURN):
+        if not goto_map(SPEED, wx, wy, forward_only=True, turn_speed=TURN, look_ahead=LOOK_AHEAD,
+                        clearance=DRIVE_CLEARANCE, turn_clearance=TURN_CLEARANCE):
             print('  could not get there, planning again')
             break
 else:

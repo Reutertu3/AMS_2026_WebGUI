@@ -15,10 +15,15 @@ import os
 import sys
 
 import numpy as np
+from scipy.ndimage import distance_transform_edt
 
-PLAN_RES = 0.05        # m, planning grid (the SLAM map is 1-2 cm; A* on that would be far too slow)
-ROBOT_RADIUS = 0.16    # m, robot centre to its farthest corner: 26 x 18 cm -> sqrt(0.13² + 0.09²)
-MARGIN = 0.05          # m, extra distance to walls. Passages need 2 * (ROBOT_RADIUS + MARGIN) = 0.42 m
+PLAN_RES = 0.03        # m, planning grid (the SLAM map is 1-2 cm; A* on that would be too slow)
+# The robot (26 x 18 cm) only turns on the spot and drives straight, so two sizes matter
+# (scripts/mapping.py sets these from its ROBOT_LENGTH / ROBOT_WIDTH):
+HALF_WIDTH = 0.09      # m, driving straight: half the robot's width
+MARGIN = 0.06          # m, extra distance to walls while driving. Passages need 2 * (0.09 + 0.06) = 0.30 m
+TURN_RADIUS = 0.18     # m, turning on the spot: corners sweep sqrt(0.13² + 0.09²) = 0.16 m (+ clearance).
+                       # Path corners and viewpoints are only put where that circle is free
 WALL_COST_DIST = 0.5   # m, paths closer than this to a wall cost more: keeps the robot in the middle
 MIN_FRONTIER = 0.3     # m, shorter frontier pieces are ignored (noise, gaps between scan rays)
 VIEW_DIST = 2.5        # m, the robot looks at a frontier from up to this far away (it doesn't have to fit
@@ -30,11 +35,17 @@ class Grid:
 
     def __init__(self, data, res, ox, oy):
         k = max(1, round(PLAN_RES / res))
-        self.cells = downsample(data, k)
+        clean = denoise(data)
+        self.cells = downsample(clean, k)
         self.res, self.ox, self.oy = res * k, ox, oy
-        occupied = self.cells >= 50
-        self.blocked = inflate(occupied, math.ceil((ROBOT_RADIUS + MARGIN) / self.res)) | (self.cells == -1)
-        self.near_wall = inflate(occupied, math.ceil(WALL_COST_DIST / self.res))
+        # Exact distance (m) from each planning cell's centre to the nearest wall, measured on the fine
+        # map: growing walls cell by cell on the coarse grid would eat several cm of every passage.
+        dist_fine = distance_transform_edt(clean < 50) * res
+        h, w = self.cells.shape
+        self.wall_dist = dist_fine[k // 2:h * k:k, k // 2:w * k:k][:h, :w]
+        self.blocked = (self.wall_dist < HALF_WIDTH + MARGIN) | (self.cells == -1)  # robot's side would touch
+        self.no_turn = self.wall_dist < TURN_RADIUS                                # too tight to turn
+        self.near_wall = self.wall_dist < WALL_COST_DIST
 
     def cell(self, x, y):
         return int((y - self.oy) / self.res), int((x - self.ox) / self.res)
@@ -48,14 +59,31 @@ class Grid:
 
 # ---------- grid helpers ----------
 
+def denoise(a):
+    """Single occupied cells with no occupied neighbour are lidar noise: treat them as free. (A chair leg
+    or the barrel always covers several neighbouring cells.) Without this, every speck in a narrow
+    passage is grown by the robot's size and closes the passage."""
+    occ = a >= 50
+    neighbours = np.zeros(a.shape, np.int8)
+    for dy in (-1, 0, 1):
+        for dx in (-1, 0, 1):
+            if dy or dx:
+                neighbours += shift(occ, dy, dx)
+    out = a.copy()
+    out[occ & (neighbours == 0)] = 0
+    return out
+
+
 def downsample(a, k):
-    """k x k blocks -> one cell: occupied if any cell is, free if at least half are free, else unknown."""
+    """k x k blocks -> one cell: occupied if any cell is, else free if any cell is, else unknown.
+    (Seen from afar the lidar rays fan out: the 1 cm cells between them stay unknown although that floor
+    was looked at. Requiring most cells to be free would turn such areas into unknown = no-go.)"""
     if k == 1:
         return a.copy()
     h, w = (a.shape[0] // k) * k, (a.shape[1] // k) * k
     b = a[:h, :w].reshape(h // k, k, w // k, k)
     out = np.full((h // k, w // k), -1, np.int8)
-    out[((b >= 0) & (b < 50)).sum(axis=(1, 3)) >= (k * k) // 2] = 0
+    out[((b >= 0) & (b < 50)).any(axis=(1, 3))] = 0
     out[(b >= 50).any(axis=(1, 3))] = 100
     return out
 
@@ -118,7 +146,7 @@ def blocked_from(g, start):
     """Where the robot can't be, seen from start: grown walls + unknown. Around the robot itself only
     real walls count, so it can drive away when it stands close to something."""
     blocked = g.blocked.copy()
-    r = math.ceil((ROBOT_RADIUS + MARGIN) / g.res)
+    r = math.ceil(TURN_RADIUS / g.res)
     around = (slice(max(0, start[0] - r), start[0] + r + 1), slice(max(0, start[1] - r), start[1] + r + 1))
     blocked[around] &= g.cells[around] >= 50
     return blocked
@@ -147,29 +175,29 @@ def reachable(blocked, start):
 
 
 def viewpoint(g, steps, f):
-    """Reachable cell from which the robot sees the frontier: within VIEW_DIST, nothing but free floor in
-    between (line of sight), as close to the frontier as possible. None if there is none."""
-    walls = g.cells != 0  # walls and unknown block the view
+    """Reachable cell from which the robot sees the frontier: within VIEW_DIST, room to turn there, a
+    clear line of sight, as close to the frontier as possible. None if there is none.
+    First try: a view across known free floor only. Only if there is none: a view through unknown
+    cells too (a wall hidden there shows up when the robot arrives, then it plans again)."""
     cr, cc = f['centre']
     rad = int(VIEW_DIST / g.res)
     r0, r1 = max(0, cr - rad), min(g.cells.shape[0], cr + rad + 1)
     c0, c1 = max(0, cc - rad), min(g.cells.shape[1], cc + rad + 1)
-    cand = np.argwhere(steps[r0:r1, c0:c1] >= 0) + (r0, c0)
+    cand = np.argwhere((steps[r0:r1, c0:c1] >= 0) & ~g.no_turn[r0:r1, c0:c1]) + (r0, c0)  # room to turn there
     if len(cand) == 0:
         return None
     d2 = (cand[:, 0] - cr) ** 2 + (cand[:, 1] - cc) ** 2
-    order = np.argsort(d2)
-    for i in order[:400]:  # closest first; the first one with a free view wins
-        if d2[i] > rad * rad:
-            break
-        p = (int(cand[i, 0]), int(cand[i, 1]))
-        if free_view(walls, p, f["centre"]):
-            return p
+    order = [i for i in np.argsort(d2)[:600] if d2[i] <= rad * rad]  # closest first
+    for walls in (g.cells != 0, g.cells >= 50):  # known free floor only, then through unknown too
+        for i in order:
+            p = (int(cand[i, 0]), int(cand[i, 1]))
+            if free_view(walls, p, f['centre']):
+                return p
     return None
 
 
 def free_view(walls, a, b):
-    """Line of sight from a to b: no wall/unknown cell in between (the end cell b itself may be anything)."""
+    """Line of sight from a to b: no wall cell in between (the end cell b itself may be anything)."""
     n = int(max(abs(b[0] - a[0]), abs(b[1] - a[1])) * 2) + 1
     for i in range(n):  # stops before b
         r = round(a[0] + (b[0] - a[0]) * i / n)
@@ -200,7 +228,7 @@ def plan(g, start, goal):
             while cur in came:
                 cur = came[cur]
                 path.append(cur)
-            return simplify(blocked, path[::-1])
+            return simplify(blocked, path[::-1], g.no_turn)
         for dr, dc, step in steps:
             n = (cur[0] + dr, cur[1] + dc)
             if not (0 <= n[0] < h and 0 <= n[1] < w) or blocked[n]:
@@ -224,16 +252,22 @@ def free_line(blocked, a, b):
     return True
 
 
-def simplify(blocked, path):
-    """Keep only the corners: skip every point that can be reached in a straight line."""
+def simplify(blocked, path, no_turn):
+    """Keep only the corners: skip every point that can be reached in a straight line. The robot turns on
+    the spot at each corner, so a corner is put where there is room to turn (no_turn False) if possible."""
     out = [path[0]]
     i = 0
     while i < len(path) - 1:
         j = len(path) - 1
         while j > i + 1 and not free_line(blocked, path[i], path[j]):
-            j -= 1
-        out.append(path[j])
-        i = j
+            j -= 1  # farthest point in a straight line
+        k = j
+        while k > i + 1 and k < len(path) - 1 and no_turn[path[k]]:
+            k -= 1  # step back to a point with room to turn ...
+        if k == i + 1 and no_turn[path[k]]:
+            k = j   # ... but if there is none (e.g. a narrow channel), drive the whole straight piece
+        out.append(path[k])
+        i = k
     return out
 
 

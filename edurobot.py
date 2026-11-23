@@ -248,18 +248,55 @@ def _map_pose():
     return x, y, yaw + w * LATENCY
 
 
-def _obstacle_ahead(direction, distance, half_width=math.radians(35)):
-    """True if the lidar sees something closer than `distance` m within ±half_width of `direction`
-    (rad, robot frame, 0 = front), or if there is no current scan (can't see = don't drive)."""
+# The robot's size, for the lidar collision checks (mapping.py sets its own values here)
+ROBOT_LENGTH = 0.26   # m, front to back
+ROBOT_WIDTH = 0.18    # m, side to side
+LIDAR_X = 0.0         # m, lidar in front of the robot's centre (0 = mounted in the centre)
+
+
+def _scan_points():
+    """Current lidar points in the robot frame (x forward, y left, metres, measured from the robot's
+    centre), or None if there is no fresh scan. The lidar is not rotated (measured)."""
     m = _scan
     if m is None or time.monotonic() - _scan_time > 1.0:
-        return True
+        return None
+    pts = []
     for i, r in enumerate(m.ranges):
-        if 0.12 < r < distance:  # < 0.12 m: the robot itself / noise
-            a = m.angle_min + i * m.angle_increment  # lidar frame = robot frame (not rotated, measured)
-            if abs(_wrap(a - direction)) < half_width:
-                return True
+        if 0.05 < r < 3.0:
+            a = m.angle_min + i * m.angle_increment
+            x, y = LIDAR_X + r * math.cos(a), r * math.sin(a)
+            # points inside the robot itself (cables, mount) are not obstacles
+            if abs(x) > ROBOT_LENGTH / 2 + 0.01 or abs(y) > ROBOT_WIDTH / 2 + 0.01:
+                pts.append((x, y))
+    return pts
+
+
+def _path_blocked(direction, look_ahead, clearance):
+    """True if driving in `direction` (rad, robot frame, 0 = forward) for the next look_ahead m would hit
+    something: any lidar point in the strip the robot's rectangle sweeps (its width across the driving
+    direction + clearance on both sides). Also True without a current scan (can't see = don't drive)."""
+    pts = _scan_points()
+    if pts is None:
+        return True
+    c, s = math.cos(direction), math.sin(direction)
+    # half size of the robot along / across the driving direction
+    half_along = abs(c) * ROBOT_LENGTH / 2 + abs(s) * ROBOT_WIDTH / 2
+    half_across = abs(s) * ROBOT_LENGTH / 2 + abs(c) * ROBOT_WIDTH / 2 + clearance
+    for x, y in pts:
+        along, across = x * c + y * s, -x * s + y * c
+        if 0 < along < half_along + look_ahead and abs(across) < half_across:
+            return True
     return False
+
+
+def _turn_blocked(clearance):
+    """True if turning on the spot would hit something: a lidar point inside the circle the robot's
+    corners sweep (+ clearance). Also True without a current scan."""
+    pts = _scan_points()
+    if pts is None:
+        return True
+    reach = math.hypot(ROBOT_LENGTH / 2, ROBOT_WIDTH / 2) + clearance
+    return any(math.hypot(x, y) < reach for x, y in pts)
 
 
 # ---------- Arduino-like helpers ----------

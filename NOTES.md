@@ -173,6 +173,9 @@ goto_map(vel, x, y)            # straight there on the map, strafing, no turning
                                # something closer than 0.4 m in the driving direction. True = arrived
 goto_map(vel, x, y, forward_only=True)   # turn on the spot first, stop + wait 0.6 s, then drive forward
                                # only (least slip = least map error). mapping.py uses this
+# collision check with the lidar and the robot's footprint (ROBOT_LENGTH/WIDTH in edurobot.py):
+#   driving: stop if a point is in the strip the robot sweeps in the next look_ahead m (+ clearance each side)
+#   turning: don't turn if a point is inside the corner circle (+ turn_clearance); back up 10 cm, try once more
 ```
 Map coordinates = the ones of the web page map and `maps/*.yaml`. The map pose arrives ~2–5 s after a
 program starts; both functions wait up to 8 s for it.
@@ -180,8 +183,14 @@ program starts; both functions wait up to 8 s for it.
 Explained for outsiders, with diagrams: [MAPPING.md](MAPPING.md).
 
 **Planning (`explore.py`)**, works on a 5 cm grid (1 cm map of 8 × 20 m = 1.6 M cells, too slow for A*):
-- obstacles are grown by `ROBOT_RADIUS` 0.25 m + `MARGIN` 0.05 m (pink in the picture): passages
-  need ≥ 0.6 m width, narrower ones count as closed
+- robot size and clearances are variables at the top of `scripts/mapping.py` (`ROBOT_LENGTH` 0.26,
+  `ROBOT_WIDTH` 0.18, `LIDAR_X` 0, `PLAN_MARGIN`, `TURN_CLEARANCE`, `DRIVE_CLEARANCE`, `LOOK_AHEAD`); it
+  hands them to `explore.py` and `edurobot.py`
+- exact distance to the nearest wall per spot (scipy distance transform on the 1 cm map, after removing
+  single noise points): driving needs 9 + 6 cm → passages ≥ 0.30 m; turning needs the 16 cm corner circle
+  + 2 cm → path corners and viewpoints only where that fits
+- frontiers don't have to be reachable: for each one a **viewpoint** is searched (reachable, clear line of
+  sight, ≤ `VIEW_DIST` 2.5 m). The robot drives to the viewpoint; a frontier still there after 2 visits is skipped
 - paths within 0.5 m of a wall cost 3× more, so the robot stays in the middle of passages
 - frontiers shorter than 0.3 m are ignored (noise between scan rays)
 - unknown space is never planned through
@@ -505,6 +514,17 @@ Useful for combinations the other functions don't cover, e.g. moving diagonally 
     with a turn on the spot: lidar and odometry agree (164.8° vs. 164.0°) and are only 0.04 s apart
     (`odom_fix.py` `DELAY` 0.1 → 0.04). On a fresh map SLAM and odometry agree exactly. → start
     mapping runs with a fresh map (*New map*).
+
+16. **First autonomous run (`maps/1stmap.pgm`) didn't look into the course**: frontiers were only
+    kept where the robot itself could stand (outside the safety margin), so narrow spots and the course
+    entrance were dropped → viewpoints. Robot size was overestimated (0.25 → 0.16 m, 26 × 18 cm);
+    `goto_map` stop distance 0.4 → 0.3 m.
+
+17. **Second run drove into obstacles / between chairs**: the lidar stop only looked at a cone in front of
+    the centre (blind to the robot's width) and turning wasn't checked; the planning margin (5 cm around
+    a circle) was below the steering accuracy. → footprint check (strip / turning circle), backing up
+    when too tight to turn, exact wall distances instead of coarse cell growing (the 40 cm course
+    channel had shrunk to nothing), noise filter, viewpoints prefer a view across known floor.
 
 Still open: holding W sometimes seemed to stop after ~1 s. Recordings showed continuous driving
 and a normal key release; `docker logs -f edurob-webui` shows why each stop happened.
