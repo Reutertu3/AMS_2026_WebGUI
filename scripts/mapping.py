@@ -67,26 +67,26 @@ for _ in range(50):
         break
     time.sleep(0.1)
 
-failed = {}  # frontier target cell -> how often we couldn't get there
+attempts = {}  # frontier key -> how often we went to look at it (still there after 2 visits = can't see in)
 for round_no in range(1, MAX_ROUNDS + 1):
     time.sleep(SETTLE)
     g = current_grid()
     x, y, _ = get_map_pose()
-    # ignore frontiers outside the room and ones that failed twice
-    skip = [t for t, n in failed.items() if n >= 2]
-    skip += [f['target'] for f in explore.frontiers(g) if math.dist(g.xy(f['target']), start[:2]) > MAX_RANGE]
-    target, waypoints = explore.next_target(g, x, y, skip=skip)
+    skip = {k for k, n in attempts.items() if n >= 2}
+    target, waypoints = explore.next_target(g, x, y, skip=skip, max_range=MAX_RANGE, origin=start[:2])
     if target is None:
-        print(f'Round {round_no}: no reachable frontier left, map complete.')
+        print(f'Round {round_no}: no frontier left that can be looked at, map complete.')
         break
-    tx, ty = g.xy(target['target'])
-    print(f'Round {round_no}: robot ({x:.2f}, {y:.2f}) -> frontier {target["size"]:.1f} m at ({tx:.2f}, {ty:.2f}), '
-          f'{len(waypoints)} waypoint(s): ' + ' '.join(f'({wx:.2f},{wy:.2f})' for wx, wy in waypoints))
+    attempts[target['key']] = attempts.get(target['key'], 0) + 1
+    fx, fy = g.xy(target['centre'])
+    vx, vy = g.xy(target['view'])
+    print(f'Round {round_no}: robot ({x:.2f}, {y:.2f}) -> frontier {target["size"]:.1f} m at ({fx:.2f}, {fy:.2f}), '
+          f'look from ({vx:.2f}, {vy:.2f}), {len(waypoints)} waypoint(s)'
+          + (f' [visit {attempts[target["key"]]}]' if attempts[target['key']] > 1 else ''))
     if not DRIVE:
         break
     for wx, wy in waypoints[:WAYPOINTS_PER_PLAN]:
         if not goto_map(SPEED, wx, wy, forward_only=True, turn_speed=TURN):
-            failed[target['target']] = failed.get(target['target'], 0) + 1
             print('  could not get there, planning again')
             break
 else:

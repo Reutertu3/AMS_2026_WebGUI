@@ -17,10 +17,12 @@ import sys
 import numpy as np
 
 PLAN_RES = 0.05        # m, planning grid (the SLAM map is 1-2 cm; A* on that would be far too slow)
-ROBOT_RADIUS = 0.25    # m, robot centre to its farthest corner (estimate)
-MARGIN = 0.05          # m, extra distance to walls. Passages need 2 * (ROBOT_RADIUS + MARGIN) = 0.6 m
+ROBOT_RADIUS = 0.16    # m, robot centre to its farthest corner: 26 x 18 cm -> sqrt(0.13² + 0.09²)
+MARGIN = 0.05          # m, extra distance to walls. Passages need 2 * (ROBOT_RADIUS + MARGIN) = 0.42 m
 WALL_COST_DIST = 0.5   # m, paths closer than this to a wall cost more: keeps the robot in the middle
 MIN_FRONTIER = 0.3     # m, shorter frontier pieces are ignored (noise, gaps between scan rays)
+VIEW_DIST = 2.5        # m, the robot looks at a frontier from up to this far away (it doesn't have to fit
+                       # into narrow spots: looking into an obstacle course from its entrance is enough)
 
 
 class Grid:
@@ -79,13 +81,12 @@ def inflate(mask, r):
 # ---------- 1. frontiers ----------
 
 def frontiers(g):
-    """Groups of reachable free cells next to unknown space, largest first.
-    Each: {'size': m, 'target': (row, col)}, target = the group's cell closest to its centre."""
+    """Groups of free cells next to unknown space, largest first: {'size': m, 'centre': (row, col)}.
+    Also in narrow spots and right at walls, where the robot itself can't go: it looks at them from a
+    viewpoint (see viewpoint())."""
     unknown = g.cells == -1
     near_unknown = shift(unknown, 1, 0) | shift(unknown, -1, 0) | shift(unknown, 0, 1) | shift(unknown, 0, -1)
-    # free and not too close to walls (the robot has to be able to stand there), next to unknown
-    candidates = (g.cells == 0) & ~inflate(g.cells >= 50, math.ceil((ROBOT_RADIUS + MARGIN) / g.res)) & near_unknown
-    todo = set(map(tuple, np.argwhere(candidates)))
+    todo = set(map(tuple, np.argwhere((g.cells == 0) & near_unknown)))
     groups = []
     while todo:
         seed = todo.pop()
@@ -102,9 +103,80 @@ def frontiers(g):
         size = len(group) * g.res
         if size >= MIN_FRONTIER:
             cr, cc = np.mean(group, axis=0)
-            target = min(group, key=lambda p: (p[0] - cr) ** 2 + (p[1] - cc) ** 2)
-            groups.append({'size': size, 'target': target})
+            centre = min(group, key=lambda p: (p[0] - cr) ** 2 + (p[1] - cc) ** 2)  # a cell of the group
+            groups.append({'size': size, 'centre': centre})
     return sorted(groups, key=lambda f: -f['size'])
+
+
+def key(g, f):
+    """Stable name for a frontier between map updates: its centre rounded to 0.3 m."""
+    x, y = g.xy(f['centre'])
+    return round(x / 0.3), round(y / 0.3)
+
+
+def blocked_from(g, start):
+    """Where the robot can't be, seen from start: grown walls + unknown. Around the robot itself only
+    real walls count, so it can drive away when it stands close to something."""
+    blocked = g.blocked.copy()
+    r = math.ceil((ROBOT_RADIUS + MARGIN) / g.res)
+    around = (slice(max(0, start[0] - r), start[0] + r + 1), slice(max(0, start[1] - r), start[1] + r + 1))
+    blocked[around] &= g.cells[around] >= 50
+    return blocked
+
+
+def reachable(blocked, start):
+    """Steps (8-neighbour) from start to every cell the robot can reach; -1 = not reachable."""
+    steps = np.full(blocked.shape, -1, np.int32)
+    if blocked[start]:
+        return steps
+    steps[start] = 0
+    frontier, n = [start], 0
+    h, w = blocked.shape
+    while frontier:
+        n += 1
+        nxt = []
+        for r, c in frontier:
+            for dr in (-1, 0, 1):
+                for dc in (-1, 0, 1):
+                    rr, cc = r + dr, c + dc
+                    if 0 <= rr < h and 0 <= cc < w and steps[rr, cc] < 0 and not blocked[rr, cc]:
+                        steps[rr, cc] = n
+                        nxt.append((rr, cc))
+        frontier = nxt
+    return steps
+
+
+def viewpoint(g, steps, f):
+    """Reachable cell from which the robot sees the frontier: within VIEW_DIST, nothing but free floor in
+    between (line of sight), as close to the frontier as possible. None if there is none."""
+    walls = g.cells != 0  # walls and unknown block the view
+    cr, cc = f['centre']
+    rad = int(VIEW_DIST / g.res)
+    r0, r1 = max(0, cr - rad), min(g.cells.shape[0], cr + rad + 1)
+    c0, c1 = max(0, cc - rad), min(g.cells.shape[1], cc + rad + 1)
+    cand = np.argwhere(steps[r0:r1, c0:c1] >= 0) + (r0, c0)
+    if len(cand) == 0:
+        return None
+    d2 = (cand[:, 0] - cr) ** 2 + (cand[:, 1] - cc) ** 2
+    order = np.argsort(d2)
+    for i in order[:400]:  # closest first; the first one with a free view wins
+        if d2[i] > rad * rad:
+            break
+        p = (int(cand[i, 0]), int(cand[i, 1]))
+        if free_view(walls, p, f["centre"]):
+            return p
+    return None
+
+
+def free_view(walls, a, b):
+    """Line of sight from a to b: no wall/unknown cell in between (the end cell b itself may be anything)."""
+    n = int(max(abs(b[0] - a[0]), abs(b[1] - a[1])) * 2) + 1
+    for i in range(n):  # stops before b
+        r = round(a[0] + (b[0] - a[0]) * i / n)
+        c = round(a[1] + (b[1] - a[1]) * i / n)
+        if walls[r, c] and (r, c) != tuple(b):
+            return False
+    return True
 
 
 # ---------- 2. path ----------
@@ -112,11 +184,7 @@ def frontiers(g):
 def plan(g, start, goal):
     """A* from start to goal (cells), around blocked cells, preferring the middle of passages.
     Returns the path as a few corner points (cells), or None if the goal can't be reached."""
-    blocked = g.blocked.copy()
-    # the robot may stand close to a wall itself: free its own surroundings so it can leave
-    r = math.ceil((ROBOT_RADIUS + MARGIN) / g.res)
-    around = (slice(max(0, start[0] - r), start[0] + r + 1), slice(max(0, start[1] - r), start[1] + r + 1))
-    blocked[around] &= g.cells[around] >= 50  # around the robot only real walls stay blocked
+    blocked = blocked_from(g, start)
     blocked[goal] = False
     if not (g.inside(start) and g.inside(goal)) or blocked[start]:
         return None
@@ -169,15 +237,27 @@ def simplify(blocked, path):
     return out
 
 
-def next_target(g, x, y, skip=()):
-    """The nearest reachable frontier from (x, y) in metres.
-    Returns (frontier, waypoints in metres) or (None, None) when there is nothing left to explore.
-    skip: targets (cells) that failed before."""
+def next_target(g, x, y, skip=(), max_range=None, origin=None):
+    """The nearest frontier the robot can look at from (x, y) in metres.
+    Returns (frontier, waypoints in metres) or (None, None) when nothing is left.
+    frontier gets 'view' (cell to drive to) and 'key'. skip: frontier keys to leave out.
+    max_range/origin: ignore frontiers farther than max_range m from origin (x, y)."""
     start = g.cell(x, y)
-    found = [f for f in frontiers(g) if f['target'] not in skip]
-    found.sort(key=lambda f: math.dist(f['target'], start))
-    for f in found[:8]:  # nearest few by straight line; the first one with a path wins
-        path = plan(g, start, f['target'])
+    blocked = blocked_from(g, start)
+    steps = reachable(blocked, start)
+    options = []
+    for f in frontiers(g):
+        f['key'] = key(g, f)
+        if f['key'] in skip:
+            continue
+        if max_range and math.dist(g.xy(f['centre']), origin) > max_range:
+            continue
+        v = viewpoint(g, steps, f)
+        if v is not None:
+            f['view'] = v
+            options.append((steps[v], f))
+    for _, f in sorted(options, key=lambda o: o[0]):  # fewest steps to drive first
+        path = plan(g, start, f['view'])
         if path:
             return f, [g.xy(p) for p in path[1:]]
     return None, None
@@ -217,7 +297,7 @@ def draw(g, frontier_list, target, waypoints, start_xy, out_path):
     H = g.cells.shape[0]
     px = lambda rc: ((rc[1] + 0.5) * scale, (H - rc[0] - 0.5) * scale)  # noqa: E731
     for f in frontier_list:
-        x, y = px(f['target'])
+        x, y = px(f['centre'])
         d.ellipse((x - 5, y - 5, x + 5, y + 5), outline=(0, 90, 255), width=2)
     pts = [px(g.cell(*start_xy))] + [px(g.cell(x, y)) for x, y in waypoints or []]
     if len(pts) > 1:
@@ -225,7 +305,10 @@ def draw(g, frontier_list, target, waypoints, start_xy, out_path):
     x, y = pts[0]
     d.ellipse((x - 6, y - 6, x + 6, y + 6), fill=(255, 122, 26))
     if target:
-        x, y = px(target['target'])
+        x, y = px(target['view'])
+        fx, fy = px(target['centre'])
+        d.line((x, y, fx, fy), fill=(0, 170, 0), width=1)  # line of sight to the frontier
+        d.ellipse((fx - 6, fy - 6, fx + 6, fy + 6), fill=(0, 90, 255))
         d.ellipse((x - 7, y - 7, x + 7, y + 7), fill=(0, 170, 0))
     img.save(out_path)
 
@@ -245,12 +328,14 @@ if __name__ == '__main__':
     print(f'{len(found)} frontiers (>= {MIN_FRONTIER} m), largest: '
           + ', '.join(f"{f['size']:.1f} m" for f in found[:5]))
     if target:
-        print(f'next target: frontier of {target["size"]:.1f} m at ({g.xy(target["target"])[0]:.2f}, '
-              f'{g.xy(target["target"])[1]:.2f}) m, path: ' + ' -> '.join(f'({x:.2f}, {y:.2f})' for x, y in waypoints))
+        fx, fy = g.xy(target['centre'])
+        vx, vy = g.xy(target['view'])
+        print(f'next: frontier of {target["size"]:.1f} m at ({fx:.2f}, {fy:.2f}) m, seen from ({vx:.2f}, {vy:.2f}), '
+              f'path: ' + ' -> '.join(f'({x:.2f}, {y:.2f})' for x, y in waypoints))
     else:
         print('nothing reachable left to explore')
     print(f'took {time.time() - t:.2f} s')
     out = sys.argv[1].rsplit('.', 1)[0] + '_plan.png'
     draw(g, found, target, waypoints, (sx, sy), out)
     print('picture:', out, '(white free, black wall, pink too close to a wall, grey unknown,',
-          'blue frontiers, green target, red path, orange start)')
+          'blue frontiers (filled = chosen), green viewpoint + line of sight, red path, orange start)')

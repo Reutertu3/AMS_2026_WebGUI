@@ -269,7 +269,7 @@ def get_map_pose():
     return None if p is None else (p[0], p[1], math.degrees(p[2]))
 
 
-def goto_map(vel, x, y, ramp=True, stop_distance=0.4, forward_only=False, turn_speed=25):
+def goto_map(vel, x, y, ramp=True, stop_distance=0.3, forward_only=False, turn_speed=25):
     """Drive to (x, y) on the SLAM map. Returns True when arrived, False if blocked, timed out or no SLAM.
     Stops early if the lidar sees something closer than stop_distance m in the driving direction.
 
