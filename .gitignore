@@ -1,0 +1,24 @@
+# colcon build output (./ros.sh colcon build ... edurob_interfaces): rebuild instead of committing
+build/
+install/
+log/
+
+# old C++ version: compiled program
+legacy_cpp/build_cpp/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# scripts starting with _ are private tests (the web page doesn't list them either)
+scripts/_*.py
+
+# preview images written by explore.py (python3 explore.py maps/<name>.yaml)
+maps/*_plan.png
+
+# editors / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store

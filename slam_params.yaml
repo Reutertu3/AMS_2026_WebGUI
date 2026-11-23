@@ -1,0 +1,24 @@
+# slam_toolbox settings for the EduRob (start.sh --slam). Everything not listed keeps slam_toolbox's default.
+slam_toolbox:
+  ros__parameters:
+    mode: mapping
+    # The re-stamped tree from odom_fix.py (the robot's own /tf has broken timestamps)
+    odom_frame: odom_fix
+    base_frame: base_fix
+    map_frame: map
+    scan_topic: /scan
+    use_sim_time: false
+
+    resolution: 0.01             # m per map cell (0.05 = default). Test: 1 cm; 2 cm already shows a 7 cm
+                                 # barrel, finer mostly shows the lidar noise (accuracy ~2-3 cm)
+    max_laser_range: 12.0        # m, the S1 lidar's range
+    map_update_interval: 3.0     # s, how often /map is published (web page refresh; 1 cm maps are big)
+    transform_timeout: 0.5       # s, odometry only arrives at 5 Hz over WiFi
+    tf_buffer_duration: 30.0
+    # Add a scan to the map after this much movement (defaults 0.5 m / 0.5 rad are coarse for a slow robot)
+    minimum_travel_distance: 0.2
+    minimum_travel_heading: 0.2
+    minimum_time_interval: 0.5
+
+    use_scan_matching: true
+    do_loop_closing: true

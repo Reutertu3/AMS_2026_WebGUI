@@ -1,0 +1,597 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EduRob Control</title>
+<style>
+  :root {
+    --bg: #14161a; --panel: #1d2026; --line: #2c3038; --text: #e6e8eb; --muted: #8b919c;
+    --accent: #ff7a1a; --trail: #4fb3ff; --scan: #ff4f6d; --ok: #3ecf8e; --bad: #ff5c5c;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  body { display: grid; grid-template-columns: 1fr 340px; height: 100vh; }
+  @media (max-width: 820px) { body { grid-template-columns: 1fr; grid-template-rows: 55vh auto; height: auto; } }
+  #view { position: relative; min-height: 300px; overflow: hidden; }
+  canvas { display: block; width: 100%; height: 100%; touch-action: none; cursor: grab; }
+  .overlay { position: absolute; left: 12px; top: 12px; display: flex; gap: 8px; flex-wrap: wrap; pointer-events: none; }
+  .chip { background: rgba(20,22,26,.85); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px;
+    font-variant-numeric: tabular-nums; }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--bad); margin-right: 6px; }
+  .dot.on { background: var(--ok); }
+  .viewbtns { position: absolute; right: 12px; top: 12px; display: flex; gap: 6px; }
+  aside { background: var(--panel); border-left: 1px solid var(--line); padding: 16px; overflow-y: auto;
+    display: flex; flex-direction: column; gap: 18px; }
+  h1 { font-size: 16px; margin: 0; letter-spacing: .02em; }
+  h2 { font-size: 12px; margin: 0 0 8px; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; font-weight: 600; }
+  button { -webkit-touch-callout: none; font: inherit; color: var(--text); background: #2a2e36; border: 1px solid var(--line); border-radius: 8px;
+    padding: 6px 10px; cursor: pointer; user-select: none; -webkit-user-select: none; touch-action: none; }
+  button:hover { background: #333842; }
+  button:disabled { opacity: .5; cursor: wait; }
+  button.held { background: var(--accent); border-color: var(--accent); color: #111; }
+  button.toggle.on { border-color: var(--accent); color: var(--accent); }
+  .pad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  .pad button { height: 56px; font-size: 20px; }
+  .rot { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 6px; }
+  .rot button { height: 44px; font-size: 18px; }
+  #stop { width: 100%; height: 56px; font-size: 18px; font-weight: 700; letter-spacing: .1em;
+    background: #c62828; border-color: #e53935; color: #fff; }
+  #stop:hover { background: #d32f2f; }
+  .slider { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; margin-bottom: 10px; }
+  .slider label { color: var(--muted); }
+  .slider output { font-variant-numeric: tabular-nums; }
+  .slider input { grid-column: 1 / -1; width: 100%; accent-color: var(--accent); }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  td { padding: 2px 0; } td:last-child { text-align: right; }
+  .muted { color: var(--muted); font-size: 12px; }
+  kbd { background: #2a2e36; border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; font-size: 12px; }
+  .row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  select { font: inherit; color: var(--text); background: #2a2e36; border: 1px solid var(--line); border-radius: 6px;
+    padding: 5px 6px; flex: 1; min-width: 0; }
+  #log { background: #0f1114; border: 1px solid var(--line); border-radius: 6px; padding: 8px; margin: 8px 0 0;
+    height: 170px; overflow: auto; font: 12px/1.35 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    white-space: pre-wrap; word-break: break-word; color: #c9ced6; }
+  #log:empty::before { content: "no script run yet"; color: var(--muted); }
+  #busychip { border-color: var(--accent); color: var(--accent); }
+  [hidden] { display: none !important; }
+  input[type=text] { font: inherit; color: var(--text); background: #2a2e36; border: 1px solid var(--line);
+    border-radius: 6px; padding: 4px 6px; }
+  input[type=number] { width: 70px; font: inherit; color: var(--text); background: #2a2e36; border: 1px solid var(--line);
+    border-radius: 6px; padding: 4px 6px; }
+</style>
+</head>
+<body>
+<div id="view">
+  <canvas id="c"></canvas>
+  <div class="overlay">
+    <span class="chip"><span class="dot" id="conn"></span><span id="src">no connection</span></span>
+    <span class="chip" id="posechip">x – y – yaw –</span>
+    <span class="chip" id="lidarchip">lidar –</span>
+    <span class="chip" id="domainchip">domain –</span>
+    <span class="chip" id="busychip" hidden></span>
+  </div>
+  <div class="viewbtns">
+    <button class="toggle on" id="follow" title="Keep the robot in the centre">Follow</button>
+    <button id="center" title="Show the whole trail">Fit</button>
+    <button id="clear" title="Delete the drawn path">Clear trail</button>
+  </div>
+</div>
+
+<aside>
+  <h1>EduRob Control</h1>
+
+  <section>
+    <button id="stop">STOP</button>
+  </section>
+
+  <section>
+    <h2>Scripts <span class="muted" style="text-transform:none;letter-spacing:0">(folder scripts/)</span></h2>
+    <div class="row">
+      <select id="scriptsel"></select>
+      <button id="run">▶ Run</button>
+      <button id="reload" title="Reload the list">⟳</button>
+    </div>
+    <pre id="log"></pre>
+    <p class="muted" id="scriptstate">Manual driving is blocked while a script runs. STOP ends the script.</p>
+  </section>
+
+  <section>
+    <h2>Drive (hold)</h2>
+    <div class="pad">
+      <button data-x="1" data-y="1">↖</button><button data-x="1">↑</button><button data-x="1" data-y="-1">↗</button>
+      <button data-y="1">←</button><button data-stop="1">■</button><button data-y="-1">→</button>
+      <button data-x="-1" data-y="1">↙</button><button data-x="-1">↓</button><button data-x="-1" data-y="-1">↘</button>
+    </div>
+    <div class="rot">
+      <button data-t="1">⟲ rotate left</button><button data-t="-1">rotate right ⟳</button>
+    </div>
+    <p class="muted"><kbd>W</kbd><kbd>S</kbd> forward/back · <kbd>A</kbd><kbd>D</kbd> strafe ·
+      <kbd>Q</kbd><kbd>E</kbd> rotate · arrows work too · <kbd>Space</kbd> stop.
+      Keys can be combined (e.g. W+Q = curve).</p>
+  </section>
+
+  <section>
+    <h2>Speed</h2>
+    <div class="slider"><label for="vel">Linear velocity</label><output id="velo"></output>
+      <input type="range" id="vel" min="0.02" max="0.5" step="0.01" value="0.15"></div>
+    <div class="slider"><label for="ang">Rotation velocity</label><output id="ango"></output>
+      <input type="range" id="ang" min="5" max="120" step="5" value="30"></div>
+    <div class="slider"><label for="ramp">Ramp (acceleration)</label><output id="rampo"></output>
+      <input type="range" id="ramp" min="0" max="2" step="0.05" value="0.5"></div>
+    <p class="muted">Ramp 0 = full speed immediately. Rotation ramp is scaled the same way
+      (0.5 m/s² ↔ 90 °/s², like <code>motion.py</code>).</p>
+  </section>
+
+  <section>
+    <h2>Status</h2>
+    <table>
+      <tr><td>Commanded x / y</td><td id="cmdxy">–</td></tr>
+      <tr><td>Commanded turn</td><td id="cmdt">–</td></tr>
+      <tr><td>Trail length</td><td id="dist">0.00 m</td></tr>
+    </table>
+    <p class="muted">Commands go out at most twice per second: the robot can't handle more over WiFi.
+      Expect ~0.5 s delay between button and movement.</p>
+  </section>
+
+  <section>
+    <h2>Gyro (IMU)</h2>
+    <div class="row">
+      <button id="calib">Calibrate gyro</button>
+      <input type="number" id="calibtime" value="5" min="1" max="30" step="1"> <span class="muted">s</span>
+    </div>
+    <p class="muted" id="calibmsg">Robot must stand still. Driving is blocked meanwhile.</p>
+  </section>
+
+  <section>
+    <h2>ROS domain</h2>
+    <div class="row">
+      <input type="number" id="domain" min="0" max="232" step="1">
+      <button id="setdomain">Switch</button>
+    </div>
+    <p class="muted">Restarts the server on that domain (robot and running script are stopped).
+      The robot's own domain is set on its settings page (http://10.0.109.58/configuration),
+      the lidar driver's with <code>DOMAIN=… ./start.sh</code>.</p>
+  </section>
+
+  <section>
+    <h2>Map (SLAM)</h2>
+    <p class="muted" id="mapstate">No map. Start with <code>./start.sh --slam</code>, then drive slowly around.</p>
+    <div class="row">
+      <input type="text" id="mapname" placeholder="map name" maxlength="40" style="flex:1;min-width:0">
+      <button id="savemap">Save map</button>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <button class="toggle on" id="showmap">Show map</button>
+      <button id="resetmap" title="Delete the current map and start a new one where the robot is now">New map</button>
+    </div>
+    <p class="muted">Saved to <code>maps/&lt;name&gt;.pgm</code> + <code>.yaml</code> (format of nav2 map_server).
+      Drive slowly (≤ 0.15 m/s), turn gently, avoid strafing, and come back to known places.</p>
+  </section>
+
+  <section>
+    <h2>Lidar</h2>
+    <div class="row">
+      <button class="toggle on" id="showscan">Show scan</button>
+      <button class="toggle" id="persist" title="Keep old scans (drifts with the odometry)">Keep points</button>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <label for="loff" class="muted">Mount angle offset</label>
+      <input type="number" id="loff" value="0" step="5"> <span class="muted">°</span>
+    </div>
+    <p class="muted">If walls appear rotated or mirrored relative to the drive direction, adjust the offset.</p>
+  </section>
+</aside>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const canvas = $("c"), ctx = canvas.getContext("2d");
+
+// ---------- settings (remembered in this browser) ----------
+const store = {
+  get(k, d) { try { const v = localStorage.getItem("edurob." + k); return v === null ? d : v; } catch { return d; } },
+  set(k, v) { try { localStorage.setItem("edurob." + k, v); } catch {} },
+};
+for (const id of ["vel", "ang", "ramp", "loff"]) {
+  $(id).value = store.get(id, $(id).value);
+  $(id).addEventListener("input", () => { store.set(id, $(id).value); showSliders(); sendCmd(); });
+}
+function showSliders() {
+  $("velo").textContent = (+$("vel").value).toFixed(2) + " m/s";
+  $("ango").textContent = $("ang").value + " °/s";
+  $("rampo").textContent = +$("ramp").value === 0 ? "off" : (+$("ramp").value).toFixed(2) + " m/s²";
+}
+showSliders();
+
+// ---------- driving ----------
+// Each held button/key adds a direction; the sum is sent while anything is held.
+const held = new Map();  // source -> {x, y, t}
+function direction() {
+  let x = 0, y = 0, t = 0;
+  for (const d of held.values()) { x += d.x; y += d.y; t += d.t; }
+  x = Math.sign(x); y = Math.sign(y); t = Math.sign(t);
+  const n = Math.hypot(x, y) || 1;  // diagonal: same speed, not 1.41x
+  return { x: x / n, y: y / n, t };
+}
+let lastSent = "";
+async function post(path, body) {
+  try {
+    await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) });
+  } catch {}
+}
+function sendCmd(force) {
+  const d = direction(), v = +$("vel").value, w = +$("ang").value, a = +$("ramp").value;
+  const body = { x: d.x * v, y: d.y * v, turn: d.t * w, lin_acc: a, ang_acc: a * 180 };
+  const key = JSON.stringify(body);
+  if (force || key !== lastSent || held.size) { post("/cmd", body); lastSent = key; }
+}
+// Keep-alive: the server stops the robot if nothing arrives for 0.8 s (closed tab, lost WiFi).
+setInterval(() => { if (held.size) sendCmd(true); }, 250);
+
+function press(src, d) { held.set(src, d); sendCmd(); }
+function release(src) { if (held.delete(src)) sendCmd(true); }
+function stopAll() {
+  held.clear();
+  document.querySelectorAll("button.held").forEach((b) => b.classList.remove("held"));
+  post("/stop"); lastSent = "";
+}
+
+document.querySelectorAll(".pad button, .rot button").forEach((b) => {
+  if (b.dataset.stop) { b.addEventListener("pointerdown", stopAll); return; }
+  const d = { x: +(b.dataset.x || 0), y: +(b.dataset.y || 0), t: +(b.dataset.t || 0) };
+  const src = "btn" + b.textContent;
+  b.addEventListener("pointerdown", (e) => { b.setPointerCapture(e.pointerId); b.classList.add("held"); press(src, d); });
+  const up = () => { b.classList.remove("held"); release(src); };
+  b.addEventListener("pointerup", up);
+  b.addEventListener("pointercancel", up);
+  b.addEventListener("lostpointercapture", up);
+});
+$("stop").addEventListener("pointerdown", stopAll);
+// Touch screens: a long press would open a context menu and cancel the press after ~1 s
+document.querySelectorAll("button").forEach((b) => b.addEventListener("contextmenu", (e) => e.preventDefault()));
+$("calib").addEventListener("click", async () => {
+  stopAll();
+  try {
+    const r = await fetch("/calibrate", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ time: +$("calibtime").value || 5 }) });
+    const j = await r.json();
+    if (!r.ok) $("calibmsg").textContent = "✗ " + j.error;
+  } catch { $("calibmsg").textContent = "✗ no connection"; }
+});
+
+const KEYS = {
+  KeyW: { x: 1, y: 0, t: 0 }, ArrowUp: { x: 1, y: 0, t: 0 },
+  KeyS: { x: -1, y: 0, t: 0 }, ArrowDown: { x: -1, y: 0, t: 0 },
+  KeyA: { x: 0, y: 1, t: 0 }, ArrowLeft: { x: 0, y: 1, t: 0 },
+  KeyD: { x: 0, y: -1, t: 0 }, ArrowRight: { x: 0, y: -1, t: 0 },
+  KeyQ: { x: 0, y: 0, t: 1 }, KeyE: { x: 0, y: 0, t: -1 },
+};
+addEventListener("keydown", (e) => {
+  if (e.target.tagName === "INPUT" && e.target.type !== "range") return;  // typing a name must not drive
+  if (e.code === "Space") { e.preventDefault(); stopAll(); return; }
+  const d = KEYS[e.code];
+  if (!d) return;
+  e.preventDefault();
+  if (!e.repeat) press("key" + e.code, d);
+});
+addEventListener("keyup", (e) => { if (KEYS[e.code]) release("key" + e.code); });
+addEventListener("blur", () => { if (held.size) stopAll(); });
+document.addEventListener("visibilitychange", () => { if (document.hidden && held.size) stopAll(); });
+
+// ---------- scripts ----------
+let logEnd = 0, logRun = 0;
+async function loadScripts() {
+  try {
+    const { scripts } = await (await fetch("/scripts", { cache: "no-store" })).json();
+    const sel = $("scriptsel"), keep = sel.value || store.get("script", "");
+    sel.replaceChildren(...scripts.map((n) => new Option(n, n)));
+    if (scripts.includes(keep)) sel.value = keep;
+    $("run").disabled = !scripts.length;
+  } catch {}
+}
+loadScripts();
+$("reload").onclick = loadScripts;
+$("scriptsel").onchange = () => store.set("script", $("scriptsel").value);
+$("run").onclick = async () => {
+  held.clear();
+  const name = $("scriptsel").value;
+  if (!name) return;
+  try {
+    const r = await fetch("/run", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }) });
+    if (!r.ok) $("scriptstate").textContent = "✗ " + (await r.json()).error;
+  } catch { $("scriptstate").textContent = "✗ no connection"; }
+};
+function showScript(sc) {
+  if (!sc) return;
+  const log = $("log");
+  if (sc.run !== logRun) { log.textContent = ""; logRun = sc.run; }
+  if (sc.log.length) {
+    const atBottom = log.scrollTop + log.clientHeight >= log.scrollHeight - 4;
+    log.textContent += sc.log.join("\n") + "\n";
+    if (atBottom) log.scrollTop = log.scrollHeight;
+  }
+  logEnd = sc.log_end;
+  $("run").textContent = sc.running ? "■ Stop" : "▶ Run";
+  $("run").onclick = sc.running ? stopAll : runSelected;
+  $("scriptstate").textContent = sc.running ? `▶ ${sc.name} running… (STOP or Space ends it)`
+    : sc.name ? `${sc.name}: ${sc.stopped ? "stopped" : sc.code === 0 ? "finished" : sc.code === null ? "–" : "error (exit code " + sc.code + ")"}`
+    : "Manual driving is blocked while a script runs. STOP ends the script.";
+}
+const runSelected = $("run").onclick;
+
+// ---------- ROS domain ----------
+$("setdomain").onclick = async () => {
+  const d = Math.round(+$("domain").value);
+  if (!(d >= 0 && d <= 232)) return;
+  stopAll();
+  await post("/domain", { domain: d });
+  trail.length = 0; trailLen = 0; cloud = []; pose = null; scan = null; logEnd = 0; logRun = -1;
+  $("src").textContent = "switching domain…";
+};
+
+// ---------- state from the robot ----------
+let pose = null, scan = null, source = null, frame = null;
+// ---------- map from slam_toolbox ----------
+let mapInfo = null, mapImg = null, mapSeq = 0, mapNoteUntil = 0, mapOcc = [];
+async function loadMap() {
+  try {
+    const { map } = await (await fetch("/map", { cache: "no-store" })).json();
+    if (!map) { mapImg = null; mapInfo = null; mapOcc = []; return; }  // map was reset
+    const raw = atob(map.data), img = new ImageData(map.w, map.h), occ = [];
+    for (let i = 0; i < raw.length; i++) {
+      const v = raw.charCodeAt(i), o = i * 4;  // 255 unknown, 0..100 occupancy
+      if (v === 255) continue;                 // unknown: transparent
+      if (v >= 65) {
+        img.data[o] = 230; img.data[o + 1] = 232; img.data[o + 2] = 235; img.data[o + 3] = 255;
+        // cell centre in the world, for drawing small obstacles bigger when zoomed out
+        occ.push([map.ox + (i % map.w + 0.5) * map.res, map.oy + (Math.floor(i / map.w) + 0.5) * map.res]);
+      }
+      else { img.data[o] = 60; img.data[o + 1] = 70; img.data[o + 2] = 84; img.data[o + 3] = 200; }
+    }
+    const c = document.createElement("canvas");
+    c.width = map.w; c.height = map.h; c.getContext("2d").putImageData(img, 0, 0);
+    mapImg = c; mapInfo = map; mapSeq = map.seq; mapOcc = occ;
+  } catch {}
+}
+$("savemap").onclick = async () => {
+  const name = $("mapname").value.trim() || "map_" + new Date().toISOString().slice(0, 16).replace(/[-:T]/g, "");
+  $("mapname").value = name;
+  try {
+    const r = await fetch("/savemap", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }) });
+    const j = await r.json();
+    $("mapstate").textContent = r.ok ? "✓ saved " + j.msg : "✗ " + j.error;
+  } catch { $("mapstate").textContent = "✗ no connection"; }
+  mapNoteUntil = Date.now() + 6000;
+};
+$("showmap").onclick = () => $("showmap").classList.toggle("on");
+$("resetmap").onclick = async () => {
+  if (!confirm("Delete the current map and start a new one? Save it first if you want to keep it.")) return;
+  try {
+    const r = await fetch("/resetmap", { method: "POST" });
+    const j = await r.json();
+    if (r.ok) { trail.length = 0; trailLen = 0; cloud = []; mapImg = null; mapInfo = null; mapOcc = []; }
+    $("mapstate").textContent = r.ok ? "✓ new map started" : "✗ " + j.error;
+  } catch { $("mapstate").textContent = "✗ no connection"; }
+  mapNoteUntil = Date.now() + 6000;
+};
+const trail = [];          // [x, y] in odom frame
+let trailLen = 0;
+let cloud = [];            // kept lidar points (world frame)
+const CLOUD_MAX = 60000;
+
+async function poll() {
+  try {
+    const r = await fetch(`/state?log=${logEnd}&run=${logRun}`, { cache: "no-store" });
+    const s = await r.json();
+    $("conn").classList.add("on");
+    source = s.source;
+    $("src").textContent = s.source === "robot" ? (s.frame === "map" ? "robot (SLAM map)" : "robot (odom)") : s.source === "turtle" ? "turtlesim" : "connected, no odometry";
+    if (s.frame !== frame) {  // map appeared / disappeared: different coordinates, old trail is useless
+      frame = s.frame; trail.length = 0; trailLen = 0; cloud = [];
+    }
+    if (s.map_seq && s.map_seq !== mapSeq) { mapSeq = s.map_seq; loadMap(); }
+    if (s.map_seq && Date.now() > mapNoteUntil) {
+      $("mapstate").textContent = mapInfo
+        ? `Map ${(mapInfo.w * mapInfo.res).toFixed(1)} × ${(mapInfo.h * mapInfo.res).toFixed(1)} m, updated ${s.map_age.toFixed(0)} s ago` +
+          (frame === "map" ? "" : " (robot not localized yet)")
+        : "Map arriving…";
+    }
+    if (s.pose) {
+      pose = s.pose;
+      const last = trail[trail.length - 1];
+      const step = last ? Math.hypot(pose[0] - last[0], pose[1] - last[1]) : Infinity;
+      if (step > 0.005) {
+        if (last) trailLen += step;
+        trail.push([pose[0], pose[1]]);
+        if (trail.length > 50000) trail.shift();
+      }
+      $("posechip").textContent =
+        `x ${pose[0].toFixed(3)} m  y ${pose[1].toFixed(3)} m  yaw ${(pose[2] * 180 / Math.PI).toFixed(1)}°`;
+      $("dist").textContent = trailLen.toFixed(2) + " m";
+    }
+    const c = s.cmd;
+    $("cmdxy").textContent = `${c[0].toFixed(2)} / ${c[1].toFixed(2)} m/s`;
+    $("cmdt").textContent = `${(c[2] * 180 / Math.PI).toFixed(0)} °/s`;
+    if (s.scan && s.scan_age > 1.5) s.scan = null;  // old scan (driver stopped): don't show it as live
+    if (s.scan) {
+      const fresh = !scan || s.scan.seq !== scan.seq;
+      scan = s.scan;
+      if (fresh && pose && $("persist").classList.contains("on")) {
+        for (const p of scanPoints(10)) cloud.push(p);
+        if (cloud.length > CLOUD_MAX) cloud = cloud.slice(cloud.length - CLOUD_MAX);
+      }
+    }
+    showScript(s.script);
+    $("domainchip").textContent = "domain " + s.domain;
+    if (document.activeElement !== $("domain")) $("domain").value = s.domain;
+    $("busychip").hidden = !s.busy;
+    $("busychip").textContent = s.busy || "";
+    if (s.calib && s.calib.state !== "idle") {
+      $("calibmsg").textContent = { running: "⏳ ", done: "✓ ", error: "✗ " }[s.calib.state] + s.calib.msg;
+      $("calib").disabled = s.calib.state === "running";
+    }
+    if (!s.scan) scan = null;
+    $("lidarchip").textContent = s.scan ? `lidar ${s.scan_hz.toFixed(1)} Hz`
+      : s.scan_age != null ? `lidar: no data for ${s.scan_age.toFixed(0)} s (restarting itself)`
+      : "lidar: no /scan (./start.sh?)";
+    render();
+  } catch {
+    $("conn").classList.remove("on");
+    $("src").textContent = "no connection to webui.py";
+  }
+  setTimeout(poll, 100);
+}
+poll();
+
+// Lidar points in the odom frame (laser assumed at the robot centre, like /tf_static says)
+function scanPoints(every = 1) {
+  const out = [];
+  if (!scan || !pose) return out;
+  const off = (+$("loff").value || 0) * Math.PI / 180;
+  const [px, py, pyaw] = pose;
+  for (let i = 0; i < scan.r.length; i += every) {
+    const r = scan.r[i];
+    if (!r) continue;
+    const a = pyaw + off + scan.amin + i * scan.ainc;
+    out.push([px + r * Math.cos(a), py + r * Math.sin(a)]);
+  }
+  return out;
+}
+
+// ---------- view ----------
+let scale = 120;           // px per m
+let center = [0, 0];       // world point at the canvas centre
+let follow = true;
+function resize() {
+  const r = canvas.getBoundingClientRect(), dpr = devicePixelRatio || 1;
+  canvas.width = r.width * dpr; canvas.height = r.height * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+addEventListener("resize", resize); resize();
+
+// World (x forward at start, y left) -> screen: x points up, y points left, like looking down on the robot
+function toScreen(x, y) {
+  const r = canvas.getBoundingClientRect();
+  return [r.width / 2 - (y - center[1]) * scale, r.height / 2 - (x - center[0]) * scale];
+}
+function toWorld(sx, sy) {
+  const r = canvas.getBoundingClientRect();
+  return [center[0] - (sy - r.height / 2) / scale, center[1] - (sx - r.width / 2) / scale];
+}
+
+canvas.addEventListener("wheel", (e) => {
+  e.preventDefault();
+  const before = toWorld(e.offsetX, e.offsetY);
+  scale = Math.min(2000, Math.max(10, scale * Math.exp(-e.deltaY * 0.0015)));
+  if (!follow) { const after = toWorld(e.offsetX, e.offsetY); center[0] += before[0] - after[0]; center[1] += before[1] - after[1]; }
+}, { passive: false });
+let drag = null;
+canvas.addEventListener("pointerdown", (e) => { drag = [e.clientX, e.clientY]; canvas.setPointerCapture(e.pointerId); });
+canvas.addEventListener("pointermove", (e) => {
+  if (!drag) return;
+  center[0] += (e.clientY - drag[1]) / scale; center[1] += (e.clientX - drag[0]) / scale;
+  drag = [e.clientX, e.clientY];
+  setFollow(false);
+});
+canvas.addEventListener("pointerup", () => { drag = null; });
+function setFollow(on) { follow = on; $("follow").classList.toggle("on", on); }
+$("follow").onclick = () => setFollow(!follow);
+$("clear").onclick = () => { trail.length = 0; trailLen = 0; cloud = []; $("dist").textContent = "0.00 m"; };
+$("center").onclick = () => {
+  const pts = trail.length ? trail : pose ? [pose] : [[0, 0]];
+  let [x0, x1, y0, y1] = [Infinity, -Infinity, Infinity, -Infinity];
+  for (const [x, y] of pts) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
+  const r = canvas.getBoundingClientRect();
+  center = [(x0 + x1) / 2, (y0 + y1) / 2];
+  scale = Math.min(400, 0.8 * Math.min(r.height / Math.max(x1 - x0, 0.5), r.width / Math.max(y1 - y0, 0.5)));
+  setFollow(false);
+};
+for (const id of ["showscan", "persist"]) $(id).onclick = () => $(id).classList.toggle("on");
+
+function drawGrid(w, h) {
+  const [wx0, wy1] = toWorld(0, h), [wx1, wy0] = toWorld(w, 0);
+  const minor = scale > 60 ? 0.1 : scale > 25 ? 0.5 : 1;
+  ctx.lineWidth = 1;
+  for (const [stepM, color] of [[minor, "#1c1f24"], [1, "#2a2e36"]]) {
+    ctx.strokeStyle = color; ctx.beginPath();
+    for (let x = Math.floor(Math.min(wx0, wx1) / stepM) * stepM; x <= Math.max(wx0, wx1); x += stepM) {
+      const [, sy] = toScreen(x, 0); ctx.moveTo(0, sy); ctx.lineTo(w, sy);
+    }
+    for (let y = Math.floor(Math.min(wy0, wy1) / stepM) * stepM; y <= Math.max(wy0, wy1); y += stepM) {
+      const [sx] = toScreen(0, y); ctx.moveTo(sx, 0); ctx.lineTo(sx, h);
+    }
+    ctx.stroke();
+  }
+  // odom origin
+  const [ox, oy] = toScreen(0, 0);
+  ctx.strokeStyle = "#555c68"; ctx.lineWidth = 2; ctx.beginPath();
+  ctx.moveTo(ox, oy); ctx.lineTo(ox, oy - 0.3 * scale); ctx.moveTo(ox, oy); ctx.lineTo(ox - 0.3 * scale, oy); ctx.stroke();
+  // scale bar
+  ctx.fillStyle = "#8b919c"; ctx.font = "12px system-ui";
+  ctx.fillRect(16, h - 20, scale * minor, 2);
+  ctx.fillText(minor >= 1 ? minor + " m" : minor * 100 + " cm", 16, h - 26);
+}
+
+function drawRobot() {
+  if (!pose) return;
+  const [sx, sy] = toScreen(pose[0], pose[1]);
+  // screen angle of the robot's forward direction: world yaw 0 = up
+  ctx.save(); ctx.translate(sx, sy); ctx.rotate(-pose[2]);
+  const L = 0.36 * scale, W = 0.30 * scale;  // body size in m (approx.)
+  ctx.fillStyle = "rgba(255,122,26,.25)"; ctx.strokeStyle = "#ff7a1a"; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.rect(-W / 2, -L / 2, W, L); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = "#ff7a1a";
+  ctx.beginPath(); ctx.moveTo(0, -L / 2 - 8); ctx.lineTo(-7, -L / 2 + 6); ctx.lineTo(7, -L / 2 + 6); ctx.closePath(); ctx.fill();
+  ctx.restore();
+}
+
+function render() {
+  const r = canvas.getBoundingClientRect(), w = r.width, h = r.height;
+  if (follow && pose) center = [pose[0], pose[1]];
+  ctx.fillStyle = "#14161a"; ctx.fillRect(0, 0, w, h);
+  drawGrid(w, h);
+
+  if (mapImg && $("showmap").classList.contains("on")) {
+    // map cell (i, j) is at world (ox + i*res, oy + j*res); screen x = left/right (world y), screen y = up (world x)
+    const dpr = devicePixelRatio || 1, rs = mapInfo.res * scale;
+    const [ex, ey] = toScreen(mapInfo.ox, mapInfo.oy);
+    ctx.save();
+    ctx.setTransform(0, -rs * dpr, -rs * dpr, 0, ex * dpr, ey * dpr);
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(mapImg, 0, 0);
+    ctx.restore();
+    // Zoomed out, a 2 cm cell is < 1 px and small obstacles (a 7 cm barrel) vanish: draw walls/obstacles at least 3 px
+    if (rs < 3) {
+      ctx.fillStyle = "#e6e8eb";
+      for (const [x, y] of mapOcc) { const [sx, sy] = toScreen(x, y); ctx.fillRect(sx - 1.5, sy - 1.5, 3, 3); }
+    }
+  }
+  if (cloud.length) {
+    ctx.fillStyle = "rgba(255,79,109,.25)";
+    for (const [x, y] of cloud) { const [sx, sy] = toScreen(x, y); ctx.fillRect(sx - 1, sy - 1, 2, 2); }
+  }
+  if (trail.length > 1) {
+    ctx.strokeStyle = "#4fb3ff"; ctx.lineWidth = 2; ctx.lineJoin = "round"; ctx.beginPath();
+    trail.forEach(([x, y], i) => { const [sx, sy] = toScreen(x, y); i ? ctx.lineTo(sx, sy) : ctx.moveTo(sx, sy); });
+    if (pose) { const [sx, sy] = toScreen(pose[0], pose[1]); ctx.lineTo(sx, sy); }
+    ctx.stroke();
+  }
+  if ($("showscan").classList.contains("on")) {
+    ctx.fillStyle = "#ff4f6d";
+    for (const [x, y] of scanPoints()) { const [sx, sy] = toScreen(x, y); ctx.fillRect(sx - 1.5, sy - 1.5, 3, 3); }
+  }
+  drawRobot();
+  if (!pose) {
+    ctx.fillStyle = "#8b919c"; ctx.font = "15px system-ui"; ctx.textAlign = "center";
+    ctx.fillText("Waiting for odometry… (robot on? ./start.sh run? robot rebooted after start?)", w / 2, h / 2);
+    ctx.textAlign = "start";
+  }
+}
+(function frame() { render(); requestAnimationFrame(frame); })();
+</script>
+</body>
+</html>
