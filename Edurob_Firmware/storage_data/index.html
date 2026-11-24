@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EduRob Settings</title>
+    <style>
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background:
+                radial-gradient(circle at center, rgba(250, 101, 37, 1), transparent),
+                linear-gradient(to left, rgba(35, 35, 35, 1), transparent),
+                linear-gradient(to right, rgba(35, 35, 35, 1), transparent);
+            background-blend-mode: multiply;
+        }
+
+        .container {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            height: fit-content;
+            padding: 20px;
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 20px;
+            width: 300px;
+            background-color: #fff;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+            text-align: center;
+        }
+
+        .status-container {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .status {
+            width: 300px;
+            background-color: #fff;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        .status-title {
+            font-size: 18px;
+            margin-bottom: 10px;
+        }
+
+        .status-value {
+            font-size: 24px;
+            font-weight: bold;
+        }
+
+        a {
+            color: #007bff;
+            text-decoration: none;
+            transition: color 0.3s ease;
+        }
+
+        a:hover {
+            color: #0056b3;
+        }
+
+        button {
+            background-color: #ff7300;
+            color: #fff;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: background-color 0.5s ease;
+        }
+
+        button:hover {
+            background-color: #ff8826;
+        }
+
+        .link {
+            width: 300px;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        .hidden {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>EduRob Settings</h1>
+        <div class="status-container">
+            <div class="status">
+                <div class="status-title">Kinematic:</div>
+                <div class="status-value" id="kinematic"><KINEMATIC></div>
+            </div>
+        </div>
+        <div class="link">
+            <button onclick="window.location.href='/configuration'" class="button">Go to Configuration</button>
+        </div>
+        <!-- Reboot Button -->
+        <div class="link">
+            <button onclick="window.location.href='/reboot'" class="button">Reboot ESP32</button>
+        </div>
+    </div>
+</body>
+</html>

@@ -142,8 +142,11 @@ web page: /map + map -> base_fix (robot position on the map)
 | 1 cm (now, test) | 4× as many cells. The lidar itself is only accurate to ~2–3 cm, so walls get thicker/noisier rather than sharper. Map updates every 3 s; the web server gzips it (1.5 MB → ~12 KB) |
 
 Odometry and IMU can't raise the resolution: they only say *where* a scan was taken, the lidar
-decides how precise it is. The IMU (5 Hz, gyro + accel only, same broken timestamps) is most likely
-already used by the robot for its heading (that's what the gyro calibration is for).
+decides how precise it is. The IMU (5 Hz, gyro + accel only, same broken timestamps) is used inside
+the robot, but not for the published odometry. Firmware (`Edurob_Firmware/`, drive code in
+`../edurobv2-feature-ROSDriveHAL/components/DriveHAL/DriveHAL.cpp`): `/odom` heading comes only from
+the wheel encoders (wheel radius + wheel positions). A second pose with the gyro's heading (once the
+gyro is calibrated) is only the feedback for the robot's own speed controller. CALIBRATE.md has more.
 
 ## Autonomous mapping (mapping.py)
 

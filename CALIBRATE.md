@@ -184,11 +184,119 @@ The script applies the result only if it makes sense:
 | Change too big | over 15 % | Something went wrong (no flat wall, wheels slipping) |
 | Runs disagree | over 2 % apart | A run was disturbed, the average can't be trusted |
 
-## 6. What it doesn't calibrate
+## 6. Turning: `calibrate_turning.py`
+
+Run it after `calibrate_odometry.py`, with the same setup (wall about 1 m in front, room to turn
+on the spot).
+
+### Which numbers decide turning?
+
+The robot exposes 12 parameters (`ros2 param list /Edurob`): the four wheel radii, plus where each
+wheel sits relative to the robot's centre:
+
+| Wheel | `wheel_pos_x` (forward) | `wheel_pos_y` (left) |
+| --- | --- | --- |
+| 0 | +0.100 m | −0.0865 m |
+| 1 | +0.100 m | +0.0865 m |
+| 2 | −0.100 m | +0.0865 m |
+| 3 | −0.100 m | −0.0865 m |
+
+When a mecanum robot turns on the spot, each wheel rolls along a circle. How far the wheels have to
+roll for a given turn depends on the **lever** `|x| + |y|` = 0.100 + 0.0865 = 0.1865 m:
+
+```
+wheel roll distance = turn angle (in radians) × lever
+```
+
+The robot goes the other way round to work out how far it turned:
+
+```
+turn angle = wheel roll distance / lever
+```
+
+That's the same situation as with the wheel radius: if the lever the robot uses is wrong, every
+turn is off by the same factor. Here the lever is in the denominator, so the correction is a
+division:
+
+```
+new lever = old lever / (real turn / odometry turn)
+```
+
+The script scales all eight `wheel_pos` values by the same factor. This changes the lever but keeps
+the robot's shape (the ratio of length to width stays the same).
+
+Why does the real lever differ from the measured wheel positions? Mecanum wheels touch the floor
+through small rollers, the contact point isn't exactly below the wheel's centre, and the rollers
+slip a little when turning. The "effective" lever includes all of that.
+
+### Measuring a turn with the wall
+
+The script uses the same wall line as above (section 3), but this time the **angle** of the wall
+matters, not its distance:
+
+1. Line up with the wall and measure the wall angle (e.g. +0.3°) and the odometry heading.
+2. Turn left a full 360° by odometry, at 30°/s.
+3. Measure the wall angle again (e.g. +5.4°) and the odometry heading.
+
+The wall looks turned by 5.4° − 0.3° = 5.1°. The robot turned a full circle, plus those 5.1°:
+
+```
+real turn     = 360° + (wall angle after − wall angle before) = 365.1°
+odometry turn = 360° + what's left over of the odometry heading change   (e.g. 360.7°)
+ratio         = real turn / odometry turn = 365.1 / 360.7 = 1.0122
+```
+
+So the robot turns 1.2 % more than it thinks. New lever = 186.5 mm / 1.0122 = 184.3 mm.
+
+The robot does this twice to the left and twice to the right (for a right turn, both turns are
+−360° plus the leftover). The average of the four ratios is the result.
+
+**Accuracy:** the wall angle comes from a line through about 120 points, so it's good to a fraction
+of a degree. Over a full circle, 0.2° is 0.06 %. Turning a whole circle instead of e.g. 90° makes
+the same angle error four times smaller.
+
+### Wheels or gyro?
+
+The robot also has a gyro (IMU). The firmware (`Edurob_Firmware/`, the drive code is in
+`DriveHAL.cpp` of the `edurobv2-feature-ROSDriveHAL` project) keeps **two** positions, both updated
+every control step from the same wheel movements:
+
+| Position | Heading from | Used for |
+| --- | --- | --- |
+| `OdoPose` | wheels only (radius + wheel positions) | published as `/odom` → `/base_link`: what `motion.py`, the web page and these scripts see |
+| `GyroOdoPose` | the gyro, once it's calibrated | only inside the robot: feedback for its own speed controller |
+
+So the odometry our scripts use takes its heading **only from the wheels**, and changing the wheel
+positions does correct it. Converting wheel turns into robot movement works like this in the firmware:
+
+```
+robot turn = sum over the 4 wheels of (± wheel radius / lever × wheel turn) / 4
+```
+
+So the turning also gets the wheel radius from section 2. That's why `calibrate_odometry.py` comes
+first: it fixes the radius, then this script fixes the lever that's left.
+
+The gyro still matters for driving: when you command 30°/s, the robot's controller checks its
+turning against the gyro. But when to stop (360° reached) is decided by the odometry, the wheels.
+
+After setting the new values, the script turns once more each way as a check. If the ratio didn't
+get much closer to 1, the result was noise (wheels slipping, uneven floor) and it puts the old
+values back.
+
+| Check | Limit |
+| --- | --- |
+| Already accurate | within 0.3 % (about 1° per full turn) |
+| Change too big | over 15 % |
+| Turns disagree | over 1 % apart (3.6° per turn) |
+
+## 7. What it doesn't calibrate
 
 - **Driving sideways (strafing):** mecanum wheels roll on small rollers and slip more sideways.
   A sideways run would need its own factor.
-- **Turning:** how far the robot thinks it turned also depends on the distance between the wheels,
-  and the gyro measures turning separately.
-- **After a reboot:** the robot probably forgets the new values. The script prints `ros2 param set`
-  commands at the end. Type them in the web page's ROS 2 console to set the values again.
+- **The gyro:** there is no parameter for its scale. It only affects the robot's own speed
+  controller, not the odometry (section 6).
+
+**After a reboot** the robot keeps the values: the firmware saves every change in its flash
+(`parameters.cpp`), to 0.1 mm (24.106 mm is stored as 24.1 mm, a difference of 0.02 %). The scripts
+also print `ros2 param set` commands at the end, e.g. to copy the values to another robot from the
+web page's ROS 2 console.

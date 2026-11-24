@@ -14,6 +14,7 @@ import math
 import time
 
 import numpy as np
+from rcl_interfaces.msg import ParameterType
 from rclpy.parameter import Parameter
 from rclpy.parameter_client import AsyncParameterClient
 
@@ -132,7 +133,7 @@ def measure_run(drive, name):
     return ratio
 
 
-# ---------- wheel radius on the robot ----------
+# ---------- parameters on the robot (also used by calibrate_turning.py) ----------
 
 def wait(future, what):
     end = time.monotonic() + 5
@@ -146,65 +147,74 @@ def wait(future, what):
 params = AsyncParameterClient(core._node, ROBOT_NODE)
 
 
-def get_wheel_radii():
+def get_params(names):
+    """The robot's values for these parameter names (floats)."""
     if not params.wait_for_services(timeout_sec=5):
         raise SystemExit(f'{ROBOT_NODE} parameter service not found: is the robot connected?')
-    values = wait(params.get_parameters(WHEEL_PARAMS), 'get wheel radius').values
-    radii = [v.double_value for v in values]
-    if not all(r > 0 for r in radii):
-        raise SystemExit(f'Could not read {", ".join(WHEEL_PARAMS)} from {ROBOT_NODE}')
-    return radii
+    values = wait(params.get_parameters(names), 'get parameters').values
+    if any(v.type != ParameterType.PARAMETER_DOUBLE for v in values):
+        raise SystemExit(f'Could not read {", ".join(names)} from {ROBOT_NODE}')
+    return [v.double_value for v in values]
 
 
-def set_wheel_radii(radii):
-    new = [Parameter(name, Parameter.Type.DOUBLE, r) for name, r in zip(WHEEL_PARAMS, radii)]
-    results = wait(params.set_parameters(new), 'set wheel radius').results
-    failed = [f'{name}: {r.reason}' for name, r in zip(WHEEL_PARAMS, results) if not r.successful]
+def set_params(names, values):
+    new = [Parameter(name, Parameter.Type.DOUBLE, float(v)) for name, v in zip(names, values)]
+    results = wait(params.set_parameters(new), 'set parameters').results
+    failed = [f'{name}: {r.reason}' for name, r in zip(names, results) if not r.successful]
     if failed:
         raise SystemExit('The robot refused: ' + ', '.join(failed))
 
 
+def print_set_commands(names, values):
+    print('The robot saves set values and keeps them after a reboot. To set these by hand:')
+    for name, v in zip(names, values):
+        print(f'  ros2 param set {ROBOT_NODE} {name} {v:.5f}')
+
+
 # ---------- calibration ----------
 
-print('Odometry calibration with the lidar')
-old_radii = get_wheel_radii()
-print('Wheel radius now: ' + ', '.join(f'{r * 1000:.2f} mm' for r in old_radii))
+def main():
+    print('Odometry calibration with the lidar')
+    old_radii = get_params(WHEEL_PARAMS)
+    print('Wheel radius now: ' + ', '.join(f'{r * 1000:.2f} mm' for r in old_radii))
 
-print('Lining up with the wall...')
-distance = face_wall()
-closest_front = distance - DRIVE_DIST - core.ROBOT_LENGTH / 2
-if closest_front < FRONT_GAP:
-    raise SystemExit(f'Too close to the wall: move the robot back to at least '
-                     f'{DRIVE_DIST + core.ROBOT_LENGTH / 2 + FRONT_GAP:.2f} m from it.')
+    print('Lining up with the wall...')
+    distance = face_wall()
+    closest_front = distance - DRIVE_DIST - core.ROBOT_LENGTH / 2
+    if closest_front < FRONT_GAP:
+        raise SystemExit(f'Too close to the wall: move the robot back to at least '
+                         f'{DRIVE_DIST + core.ROBOT_LENGTH / 2 + FRONT_GAP:.2f} m from it.')
 
-print(f'Driving {DRIVE_DIST:.2f} m towards the wall and back, {ROUND_TRIPS} times...')
-ratios = []
-for trip in range(ROUND_TRIPS):
-    ratios.append(measure_run(forward, 'forward'))
-    ratios.append(measure_run(backward, 'backward'))
+    print(f'Driving {DRIVE_DIST:.2f} m towards the wall and back, {ROUND_TRIPS} times...')
+    ratios = []
+    for _ in range(ROUND_TRIPS):
+        ratios.append(measure_run(forward, 'forward'))
+        ratios.append(measure_run(backward, 'backward'))
 
-ratio = float(np.mean(ratios))
-spread = max(ratios) - min(ratios)
-new_radii = [r * ratio for r in old_radii]
-print()
-print(f'Result: the robot really moves {ratio:.4f} x what the odometry says '
-      f'(runs differ by {spread * 100:.1f} %)')
-print('New wheel radius: ' + ', '.join(f'{r * 1000:.2f} mm' for r in new_radii))
+    ratio = float(np.mean(ratios))
+    spread = max(ratios) - min(ratios)
+    new_radii = [r * ratio for r in old_radii]
+    print()
+    print(f'Result: the robot really moves {ratio:.4f} x what the odometry says '
+          f'(runs differ by {spread * 100:.1f} %)')
+    print('New wheel radius: ' + ', '.join(f'{r * 1000:.2f} mm' for r in new_radii))
 
-if abs(ratio - 1) < 0.002:
-    print('Already accurate (within 0.2 %), nothing changed.')
-elif abs(ratio - 1) > MAX_CHANGE:
-    print(f'Not applied: change of {(ratio - 1) * 100:+.1f} % is too big to be right. '
-          f'Wall straight? Wheels slipping?')
-elif spread > MAX_SPREAD:
-    print(f'Not applied: the runs differ too much ({spread * 100:.1f} %). '
-          f'Wheels slipping? Something moving near the wall? Try again.')
-elif not APPLY:
-    print('Not applied (APPLY = False).')
-else:
-    set_wheel_radii(new_radii)
-    print(f'Set on the robot. Run this script again to check: the ratio should be ~1.000.')
+    if abs(ratio - 1) < 0.002:
+        print('Already accurate (within 0.2 %), nothing changed.')
+    elif abs(ratio - 1) > MAX_CHANGE:
+        print(f'Not applied: change of {(ratio - 1) * 100:+.1f} % is too big to be right. '
+              f'Wall straight? Wheels slipping?')
+    elif spread > MAX_SPREAD:
+        print(f'Not applied: the runs differ too much ({spread * 100:.1f} %). '
+              f'Wheels slipping? Something moving near the wall? Try again.')
+    elif not APPLY:
+        print('Not applied (APPLY = False).')
+    else:
+        set_params(WHEEL_PARAMS, new_radii)
+        print('Set on the robot. Run this script again to check: the ratio should be ~1.000.')
 
-print('To set these by hand (e.g. after a robot reboot):')
-for name, r in zip(WHEEL_PARAMS, new_radii):
-    print(f'  ros2 param set {ROBOT_NODE} {name} {r:.5f}')
+    print_set_commands(WHEEL_PARAMS, new_radii)
+
+
+if __name__ == '__main__':
+    main()

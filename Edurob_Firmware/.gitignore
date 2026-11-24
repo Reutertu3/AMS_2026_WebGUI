@@ -1,0 +1,10 @@
+.vscode
+.DS_Store
+build
+dependencies.lock
+#main/idf_component.yml
+managed_components
+sdkconfig
+sdkconfig.ci
+sdkconfig.old
+#components/micro_ros_espidf_component

@@ -14,10 +14,10 @@
     --glass-hover: rgba(48, 58, 78, .7);
     --stroke: rgba(255, 255, 255, .09);
     --stroke-hi: rgba(255, 255, 255, .16);
-    --accent: #ff8a3d; --accent-2: #ff5f6d;
-    --blue: #5ab4ff; --ok: #3ee0a0; --bad: #ff5c6c;
-    --radius: 16px; --radius-sm: 10px;
-    --blur: blur(18px) saturate(150%);
+    --accent: #d4895a; --accent-2: #c46a64;
+    --blue: #7ea6c8; --ok: #6cc49c; --bad: #d9666f;
+    --radius: 10px; --radius-sm: 6px;
+    --blur: blur(18px) saturate(115%);
     --shadow: 0 10px 40px rgba(0, 0, 0, .45), inset 0 1px 0 rgba(255, 255, 255, .07);
     color-scheme: dark;
   }
@@ -26,9 +26,8 @@
     font: 14px/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
   body {
     background:
-      radial-gradient(1100px 700px at 12% -10%, rgba(64, 110, 255, .22), transparent 60%),
-      radial-gradient(900px 650px at 105% 110%, rgba(255, 110, 60, .18), transparent 60%),
-      radial-gradient(700px 500px at 60% 50%, rgba(120, 60, 255, .10), transparent 65%),
+      radial-gradient(1100px 700px at 12% -10%, rgba(90, 120, 180, .12), transparent 60%),
+      radial-gradient(900px 650px at 105% 110%, rgba(190, 120, 90, .08), transparent 60%),
       var(--bg);
     background-attachment: fixed;
     display: grid; grid-template-columns: minmax(0, 1fr) 380px; height: 100vh; height: 100dvh;
@@ -46,7 +45,7 @@
   }
 
   /* ---------- map ---------- */
-  #view { position: relative; min-height: 320px; overflow: hidden; margin: 12px 0 12px 12px; border-radius: 22px;
+  #view { position: relative; min-height: 320px; overflow: hidden; margin: 12px 0 12px 12px; border-radius: var(--radius);
     border: 1px solid var(--stroke); box-shadow: inset 0 0 0 1px rgba(255,255,255,.02), 0 20px 60px rgba(0,0,0,.35);
     background: rgba(8, 12, 20, .45); }
   @media (max-width: 860px) { #view { margin: 10px; } }
@@ -55,19 +54,19 @@
   .overlay { position: absolute; left: 14px; top: 14px; right: 14px; display: flex; gap: 8px; flex-wrap: wrap;
     pointer-events: none; padding-right: 250px; }
   @media (max-width: 860px) { .overlay { padding-right: 0; top: 62px; } }
-  .chip { display: inline-flex; align-items: center; gap: 7px; padding: 6px 12px; border-radius: 999px;
+  .chip { display: inline-flex; align-items: center; gap: 7px; padding: 6px 12px; border-radius: var(--radius-sm);
     background: var(--glass); border: 1px solid var(--stroke); backdrop-filter: var(--blur);
     -webkit-backdrop-filter: var(--blur); font-size: 12.5px; font-variant-numeric: tabular-nums;
     box-shadow: 0 4px 18px rgba(0,0,0,.3); white-space: nowrap; }
-  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--bad); box-shadow: 0 0 0 3px rgba(255,92,108,.18); }
-  .dot.on { background: var(--ok); box-shadow: 0 0 0 3px rgba(62,224,160,.18), 0 0 12px rgba(62,224,160,.6); }
-  #busychip { border-color: rgba(255,138,61,.5); color: var(--accent); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--bad); box-shadow: 0 0 0 3px rgba(217,102,111,.16); }
+  .dot.on { background: var(--ok); box-shadow: 0 0 0 3px rgba(108,196,156,.16); }
+  #busychip { border-color: rgba(212,137,90,.45); color: var(--accent); }
   .viewbtns { position: absolute; right: 14px; top: 14px; display: flex; gap: 4px; padding: 4px;
-    border-radius: 14px; }
+    border-radius: var(--radius); }
   .viewbtns button { background: transparent; border-color: transparent; padding: 6px 12px; }
   .viewbtns button:hover { background: rgba(255,255,255,.08); }
   .legend { position: absolute; right: 14px; bottom: 14px; display: flex; gap: 12px; flex-wrap: wrap;
-    padding: 6px 12px; border-radius: 999px; font-size: 12px; color: var(--muted); pointer-events: none; }
+    padding: 6px 12px; border-radius: var(--radius-sm); font-size: 12px; color: var(--muted); pointer-events: none; }
   .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
 
   /* ---------- side panel ---------- */
@@ -76,9 +75,9 @@
   @media (max-width: 860px) { aside { overflow: visible; } }  /* phone: STOP stays on screen while scrolling */
   .head { position: sticky; top: 0; z-index: 2; padding: 14px; display: grid; gap: 12px; }
   .brand { display: flex; align-items: center; gap: 10px; }
-  .logo { width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center; font-weight: 800;
+  .logo { width: 30px; height: 30px; border-radius: var(--radius-sm); display: grid; place-items: center; font-weight: 800;
     color: #1a0f08; background: linear-gradient(135deg, var(--accent), var(--accent-2));
-    box-shadow: 0 4px 16px rgba(255,120,60,.45); }
+    box-shadow: 0 2px 8px rgba(0,0,0,.3); }
   h1 { font-size: 16px; margin: 0; letter-spacing: .01em; font-weight: 650; }
   .sub { font-size: 12px; color: var(--muted); margin-top: -2px; }
   .card { padding: 14px; }
@@ -96,29 +95,29 @@
   button:disabled { opacity: .45; cursor: wait; transform: none; }
   :focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
   button.primary { background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: #1c0d06;
-    border-color: transparent; box-shadow: 0 4px 18px rgba(255,110,70,.35); }
-  button.primary:hover { filter: brightness(1.08); }
-  button.primary.danger { background: linear-gradient(180deg, #ff4b5c, #d81b3c); color: #fff;
-    box-shadow: 0 4px 18px rgba(230,30,60,.4); }
+    border-color: transparent; box-shadow: 0 2px 10px rgba(0,0,0,.25); }
+  button.primary:hover { filter: brightness(1.06); }
+  button.primary.danger { background: linear-gradient(180deg, #c95560, #a8404c); color: #fff;
+    box-shadow: 0 2px 10px rgba(0,0,0,.3); }
   button.held { background: linear-gradient(135deg, var(--accent), var(--accent-2)); border-color: transparent;
-    color: #1c0d06; box-shadow: 0 0 0 4px rgba(255,138,61,.2), 0 6px 22px rgba(255,110,70,.45); }
-  button.toggle.on { border-color: rgba(90,180,255,.55); color: #cfe7ff; background: rgba(90,180,255,.16); }
+    color: #1c0d06; box-shadow: 0 0 0 3px rgba(212,137,90,.2); }
+  button.toggle.on { border-color: rgba(126,166,200,.5); color: #d6e3ee; background: rgba(126,166,200,.14); }
   #stop { width: 100%; height: 58px; font-size: 18px; font-weight: 800; letter-spacing: .16em; color: #fff;
-    border: 1px solid rgba(255,255,255,.18); border-radius: 14px;
-    background: linear-gradient(180deg, #ff4b5c, #d81b3c);
-    box-shadow: 0 8px 28px rgba(230,30,60,.45), inset 0 1px 0 rgba(255,255,255,.3); }
-  #stop:hover { filter: brightness(1.08); }
+    border: 1px solid rgba(255,255,255,.14); border-radius: var(--radius-sm);
+    background: linear-gradient(180deg, #c95560, #a8404c);
+    box-shadow: 0 4px 16px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.2); }
+  #stop:hover { filter: brightness(1.06); }
   .pad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-  .pad button { height: 58px; font-size: 21px; border-radius: 14px; }
+  .pad button { height: 58px; font-size: 21px; }
   .pad button[data-stop] { color: var(--bad); }
   .rot { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
-  .rot button { height: 46px; border-radius: 14px; }
+  .rot button { height: 46px; }
   .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
   .row + .row { margin-top: 8px; }
 
   .slider { display: grid; grid-template-columns: 1fr auto; gap: 6px 8px; margin-bottom: 14px; }
   .slider label { color: var(--muted); }
-  .slider output { font-variant-numeric: tabular-nums; font-weight: 600; padding: 1px 8px; border-radius: 999px;
+  .slider output { font-variant-numeric: tabular-nums; font-weight: 600; padding: 1px 8px; border-radius: 4px;
     background: rgba(255,255,255,.06); border: 1px solid var(--stroke); font-size: 12.5px; }
   input[type=range] { grid-column: 1 / -1; width: 100%; height: 22px; margin: 0; background: transparent;
     -webkit-appearance: none; appearance: none; --p: 50%; }
@@ -127,15 +126,15 @@
   input[type=range]::-moz-range-track { height: 6px; border-radius: 999px; background: rgba(255,255,255,.1); }
   input[type=range]::-moz-range-progress { height: 6px; border-radius: 999px; background: var(--accent); }
   input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; height: 18px; margin-top: -6px;
-    border-radius: 50%; background: #fff; border: 0; box-shadow: 0 2px 8px rgba(0,0,0,.5), 0 0 0 4px rgba(255,138,61,.25); }
+    border-radius: 50%; background: #fff; border: 0; box-shadow: 0 2px 8px rgba(0,0,0,.5), 0 0 0 4px rgba(212,137,90,.22); }
   input[type=range]::-moz-range-thumb { width: 18px; height: 18px; border-radius: 50%; background: #fff; border: 0;
-    box-shadow: 0 2px 8px rgba(0,0,0,.5), 0 0 0 4px rgba(255,138,61,.25); }
+    box-shadow: 0 2px 8px rgba(0,0,0,.5), 0 0 0 4px rgba(212,137,90,.22); }
 
   input[type=text], input[type=number], select { font: inherit; color: var(--text); background: rgba(8,12,20,.55);
     border: 1px solid var(--stroke); border-radius: var(--radius-sm); padding: 8px 10px; min-width: 0;
     transition: border-color .15s, box-shadow .15s; }
-  input[type=text]:focus, input[type=number]:focus, select:focus { border-color: rgba(90,180,255,.6);
-    box-shadow: 0 0 0 3px rgba(90,180,255,.18); outline: none; }
+  input[type=text]:focus, input[type=number]:focus, select:focus { border-color: rgba(126,166,200,.55);
+    box-shadow: 0 0 0 3px rgba(126,166,200,.16); outline: none; }
   input[type=number] { width: 84px; }
   select { flex: 1; }
   select option { background: #141a26; }
@@ -149,18 +148,18 @@
     padding: 1px 5px; border-radius: 5px; }
   kbd { font: 11.5px ui-monospace, "SF Mono", Menlo, Consolas, monospace; background: rgba(255,255,255,.08);
     border: 1px solid var(--stroke-hi); border-bottom-width: 2px; border-radius: 6px; padding: 0 5px; }
-  #log { background: rgba(4,7,12,.65); border: 1px solid var(--stroke); border-radius: 12px; padding: 10px 12px;
+  #log { background: rgba(4,7,12,.65); border: 1px solid var(--stroke); border-radius: var(--radius-sm); padding: 10px 12px;
     margin: 10px 0 0; height: 170px; overflow: auto; font: 12px/1.45 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
     white-space: pre-wrap; word-break: break-word; color: #c9d3e0; scrollbar-width: thin; }
   #log:empty::before { content: "no script run yet"; color: var(--faint); }
-  #ros, #roscmdout { background: rgba(4,7,12,.65); border: 1px solid var(--stroke); border-radius: 12px; padding: 10px 12px;
+  #ros, #roscmdout { background: rgba(4,7,12,.65); border: 1px solid var(--stroke); border-radius: var(--radius-sm); padding: 10px 12px;
     margin: 10px 0 0; height: 220px; overflow: auto; font: 12px/1.45 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
     white-space: pre-wrap; word-break: break-word; color: #c9d3e0; scrollbar-width: thin; }
   #ros:empty::before { content: "no messages yet"; color: var(--faint); }
   #ros .t { color: var(--faint); } #ros .n { color: var(--muted); }
-  #ros .l-10 { color: var(--faint); } #ros .l-30 { color: #ffd166; } #ros .l-40, #ros .l-50 { color: var(--bad); }
+  #ros .l-10 { color: var(--faint); } #ros .l-30 { color: #d9b86a; } #ros .l-40, #ros .l-50 { color: var(--bad); }
   #roscmdout:empty::before { content: "command output appears here"; color: var(--faint); }
-  .panel-toggle { pointer-events: auto; padding: 6px 14px; border-radius: 999px; font-size: 12px;
+  .panel-toggle { pointer-events: auto; padding: 6px 14px; font-size: 12px;
     background: var(--glass); backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur); }
   /* Scripts and ROS 2 console: floating panels at the top left of the map, one open at a time */
   .float-panel { position: absolute; left: 14px; top: 58px; bottom: 14px; width: min(560px, calc(100% - 28px));
@@ -171,7 +170,7 @@
   .float-panel #log, .float-panel #ros { flex: 1 1 0; min-height: 120px; height: auto; margin: 0; }
   #rosfilter { flex: 0 0 auto; width: auto; }
   .float-panel #roscmdout { flex: 0 0 auto; height: 110px; margin: 0; }
-  .float-panel #roscmd input { flex: 1; min-width: 0; font: 13px ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+  .float-panel form input { flex: 1; min-width: 0; font: 13px ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
   .float-panel .muted { margin: 0; }
   [hidden] { display: none !important; }
   details > summary { list-style: none; cursor: pointer; }
@@ -202,9 +201,9 @@
     <button id="clear" title="Delete the drawn path">Clear trail</button>
   </div>
   <div class="legend glass" aria-hidden="true">
-    <span><i style="background:#ff8a3d"></i>robot</span>
-    <span><i style="background:#5ab4ff"></i>trail</span>
-    <span><i style="background:#ff5f7a"></i>lidar</span>
+    <span><i style="background:#d9874e"></i>robot</span>
+    <span><i style="background:#6fa3cc"></i>trail</span>
+    <span><i style="background:#d46a7a"></i>lidar</span>
     <span><i style="background:#e6e8eb"></i>map walls</span>
   </div>
   <section class="float-panel glass" id="scriptpanel" aria-label="Scripts" hidden>
@@ -218,6 +217,12 @@
       <button id="reload" title="Reload the list" aria-label="Reload the list">⟳</button>
     </div>
     <pre id="log"></pre>
+    <form class="row" id="pycmd">
+      <input type="text" id="pycmdin" placeholder="forward(0.1, 0.3); rotate_left(90, 30)" autocomplete="off" spellcheck="false" aria-label="Python command">
+      <button class="primary" id="pycmdbtn">Run</button>
+    </form>
+    <p class="muted">Python with <code>motion.py</code> already imported, separate commands with <code>;</code>.
+      Runs like a script (STOP ends it), starting takes ~2 s.</p>
     <p class="muted" id="scriptstate">Manual driving is blocked while a script runs. STOP ends the script.</p>
   </section>
   <section class="float-panel glass" id="rospanel" aria-label="ROS 2 console" hidden>
@@ -480,6 +485,18 @@ function showScript(sc) {
     : "Manual driving is blocked while a script runs. STOP ends the script.";
 }
 const runSelected = $("run").onclick;
+// Python command line: runs like a script, its output goes to the same log
+$("pycmd").onsubmit = async (e) => {
+  e.preventDefault();
+  const code = $("pycmdin").value.trim();
+  if (!code) return;
+  held.clear();
+  try {
+    const r = await fetch("/runcode", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code }) });
+    if (!r.ok) $("scriptstate").textContent = "✗ " + (await r.json()).error;
+  } catch { $("scriptstate").textContent = "✗ no connection"; }
+};
 
 // ---------- ROS 2 console (/rosout) ----------
 const LEVEL_NAMES = { 10: "DEBUG", 20: "INFO", 30: "WARN", 40: "ERROR", 50: "FATAL" };
@@ -778,9 +795,9 @@ function drawRobot() {
   // screen angle of the robot's forward direction: world yaw 0 = up
   ctx.save(); ctx.translate(sx, sy); ctx.rotate(-pose[2]);
   const L = 0.36 * scale, W = 0.30 * scale;  // body size in m (approx.)
-  ctx.fillStyle = "rgba(255,122,26,.25)"; ctx.strokeStyle = "#ff7a1a"; ctx.lineWidth = 2;
+  ctx.fillStyle = "rgba(217,135,78,.25)"; ctx.strokeStyle = "#d9874e"; ctx.lineWidth = 2;
   ctx.beginPath(); ctx.rect(-W / 2, -L / 2, W, L); ctx.fill(); ctx.stroke();
-  ctx.fillStyle = "#ff7a1a";
+  ctx.fillStyle = "#d9874e";
   ctx.beginPath(); ctx.moveTo(0, -L / 2 - 8); ctx.lineTo(-7, -L / 2 + 6); ctx.lineTo(7, -L / 2 + 6); ctx.closePath(); ctx.fill();
   ctx.restore();
 }
@@ -807,17 +824,17 @@ function render() {
     }
   }
   if (cloud.length) {
-    ctx.fillStyle = "rgba(255,79,109,.25)";
+    ctx.fillStyle = "rgba(212,106,122,.25)";
     for (const [x, y] of cloud) { const [sx, sy] = toScreen(x, y); ctx.fillRect(sx - 1, sy - 1, 2, 2); }
   }
   if (trail.length > 1) {
-    ctx.strokeStyle = "#4fb3ff"; ctx.lineWidth = 2; ctx.lineJoin = "round"; ctx.beginPath();
+    ctx.strokeStyle = "#6fa3cc"; ctx.lineWidth = 2; ctx.lineJoin = "round"; ctx.beginPath();
     trail.forEach(([x, y], i) => { const [sx, sy] = toScreen(x, y); i ? ctx.lineTo(sx, sy) : ctx.moveTo(sx, sy); });
     if (pose) { const [sx, sy] = toScreen(pose[0], pose[1]); ctx.lineTo(sx, sy); }
     ctx.stroke();
   }
   if ($("showscan").classList.contains("on")) {
-    ctx.fillStyle = "#ff4f6d";
+    ctx.fillStyle = "#d46a7a";
     for (const [x, y] of scanPoints()) { const [sx, sy] = toScreen(x, y); ctx.fillRect(sx - 1.5, sy - 1.5, 3, 3); }
   }
   drawRobot();

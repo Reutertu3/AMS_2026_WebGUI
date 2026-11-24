@@ -48,6 +48,7 @@ CMD_INTERVAL = 0.5  # s, the robot only handles ~2 commands/s, faster ones queue
 DEADMAN = 0.8       # s without a command from the browser -> slow down to 0 (tab closed, WiFi gone)
 TICK = 0.05         # s, ramp update rate
 ROSOUT_KEEP = 1000  # newest ROS 2 log messages (/rosout) kept for the console in the page
+CODE_MAX = 5000     # characters of Python a command from the page may have
 ROS2_TIMEOUT = 15   # s, a ros2 command from the page still running after this is stopped (e.g. topic echo)
 ROS2_OUTPUT = 20000  # characters of command output sent back to the page
 ROS2_NODE = 4        # s, `param list` without a node: wait this long for each node
@@ -95,6 +96,19 @@ class ScriptRunner:
     def start(self, name):
         if name not in self.list():  # only files from scripts/, no paths
             raise ValueError(f'unknown script {name!r}')
+        self._spawn(name, [os.path.join(SCRIPTS, name)], f'$ python3 scripts/{name}')
+
+    def start_code(self, code):
+        """Python typed in the page, e.g. forward(0.1, 0.3); rotate_left(90, 30). motion.py is already imported."""
+        code = code.strip()
+        if not code:
+            raise ValueError('type a command, e.g. forward(0.1, 0.3)')
+        if len(code) > CODE_MAX:
+            raise ValueError(f'too long (max {CODE_MAX} characters)')
+        self._spawn('command', ['-c', 'from motion import *\n' + code], '>>> ' + code)
+
+    def _spawn(self, name, args, header):
+        """Start python3 <args> as its own process, its output goes to the log."""
         if self.running():
             raise ValueError(f'{self.name} is still running')
         with self.lock:
@@ -102,10 +116,10 @@ class ScriptRunner:
             self.log_start = 0
         self.name, self.code, self.stopped = name, None, False
         self.run_id += 1
-        self._add(f'$ python3 scripts/{name}')
+        self._add(header)
         env = dict(os.environ, PYTHONPATH=os.pathsep.join(filter(None, [HERE, os.environ.get('PYTHONPATH')])),
                    PYTHONUNBUFFERED='1')
-        self.proc = subprocess.Popen([sys.executable, os.path.join(SCRIPTS, name)] + ROS_ARGS, cwd=HERE, env=env,
+        self.proc = subprocess.Popen([sys.executable] + args + ROS_ARGS, cwd=HERE, env=env,
                                      stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
         threading.Thread(target=self._read, args=(self.proc,), daemon=True).start()
 
@@ -339,6 +353,13 @@ class Bridge(Node):
         self.stop_now()
         self.script.start(name)
 
+    def run_code(self, code):
+        """A Python command from the page: runs like a script (STOP ends it, manual driving is blocked)."""
+        if self.busy():
+            raise ValueError(self.busy())
+        self.stop_now()
+        self.script.start_code(code)
+
     def calibrate(self, seconds):
         if not self.calib_client:
             raise ValueError('edurob_interfaces not built (see README.md)')
@@ -477,6 +498,8 @@ def make_handler(bridge, restart):
                     return self.reply(200, bridge.ros2(str(body.get('cmd', ''))))
                 elif self.path == '/run':
                     bridge.run_script(str(body.get('name', '')))
+                elif self.path == '/runcode':
+                    bridge.run_code(str(body.get('code', '')))
                 elif self.path == '/domain':
                     domain = int(body.get('domain', -1))
                     if not 0 <= domain <= 232:

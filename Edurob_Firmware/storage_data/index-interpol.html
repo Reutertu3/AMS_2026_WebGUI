@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EduRob Settings</title>
+    <style>
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background: 
+                radial-gradient(circle at center, rgba(250, 101, 37, 1), transparent),
+                linear-gradient(to left, rgba(35, 35, 35, 1), transparent),
+                linear-gradient(to right, rgba(35, 35, 35, 1), transparent);
+            background-blend-mode: multiply;
+        }
+
+        .container {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            height: fit-content;
+            padding: 20px;
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 20px;
+            width: 300px;
+            background-color: #fff;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+            text-align: center;
+        }
+
+        .status-container {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .status {
+            width: 300px;
+            background-color: #fff;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        .status-title {
+            font-size: 18px;
+            margin-bottom: 10px;
+        }
+
+        .status-value {
+            font-size: 24px;
+            font-weight: bold;
+        }
+
+        a {
+            color: #007bff;
+            text-decoration: none;
+            transition: color 0.3s ease;
+        }
+
+        a:hover {
+            color: #0056b3;
+        }
+
+        button {
+            background-color: #ff7300;
+            color: #fff;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: background-color 0.5s ease;
+        }
+
+        button:hover {
+            background-color: #ff8826;
+        }
+
+        .link {
+            width: 300px;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        .hidden {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>EduRob Settings</h1>
+        <div class="status-container">
+            <div class="status">
+                <div class="status-title">Radabstand:</div>
+                <div class="status-value" id="radabstand">Loading...</div>
+            </div>
+            <div class="status">
+                <div class="status-title">Axenabstand:</div>
+                <div class="status-value" id="axenabstand">Loading...</div>
+            </div>
+            <div class="status">
+                <div class="status-title">Radradius:</div>
+                <div class="status-value" id="radradius">Loading...</div>
+            </div>
+            <div class="status">
+                <div class="status-title">Encoderauflösung:</div>
+                <div class="status-value" id="encoderaufloesung">Loading...</div>
+            </div>
+            <div class="status">
+                <div class="status-title">Übersetzung:</div>
+                <div class="status-value" id="uebersetzung">Loading...</div>
+            </div>
+            <div class="status">
+                <div class="status-title">Kinematik:</div>
+                <div class="status-value" id="kinematik">Loading...</div>
+            </div>
+        </div>
+        <div class="link">
+            <button onclick="window.location.href='/configuration'" class="button">Go to Configuration</button>
+        </div>
+        <div class="link">
+            <input type="checkbox" id="interpolatorCheckbox" onchange="toggleCheckbox('interpolatorCheckbox')">
+            <label for="interpolatorCheckbox">Interpolator</label>
+        </div>
+        <div class="link hidden" id="pathPlanningButton">
+            <button onclick="window.location.href='/pathplanning'" class="button">Configure Interpolator</button>
+        </div>
+        <div class="link">
+            <input type="checkbox" id="rosCheckbox" onchange="toggleCheckbox('rosCheckbox')">
+            <label for="rosCheckbox">ROS</label>
+        </div>
+        <!-- Reboot Button -->
+        <div class="link">
+            <button onclick="sendReboot()" class="button">Reboot ESP32</button>
+        </div>
+    </div>
+
+    <script>
+        // Initialize Server-Sent Events (SSE)
+        const eventSource = new EventSource('/sse');
+
+        // Update status values when receiving events
+        eventSource.onmessage = function(event) {
+            const data = JSON.parse(event.data);
+            document.getElementById('radabstand').innerHTML = data.status1;
+            document.getElementById('axenabstand').innerHTML = data.status2;
+            document.getElementById('radradius').innerHTML = data.status3;
+            document.getElementById('encoderaufloesung').innerHTML = data.status4;
+            document.getElementById('uebersetzung').innerHTML = data.status5;
+            document.getElementById('kinematik').innerHTML = data.status6;
+        };
+
+        // Toggle buttons visibility based on checkbox state
+        function toggleCheckbox(checkedCheckbox) {
+            const interpolatorCheckbox = document.getElementById('interpolatorCheckbox');
+            const rosCheckbox = document.getElementById('rosCheckbox');
+            const pathPlanningButton = document.getElementById('pathPlanningButton');
+
+            if (checkedCheckbox === 'interpolatorCheckbox') {
+                if (interpolatorCheckbox.checked) {
+                    rosCheckbox.checked = false;
+                    pathPlanningButton.classList.remove('hidden');
+                } else {
+                    interpolatorCheckbox.checked = true; // Ensure one is always checked
+                }
+            } else if (checkedCheckbox === 'rosCheckbox') {
+                if (rosCheckbox.checked) {
+                    interpolatorCheckbox.checked = false;
+                    pathPlanningButton.classList.add('hidden');
+                } else {
+                    rosCheckbox.checked = true; // Ensure one is always checked
+                }
+            }
+        }
+
+        // Send reboot request with the current selected checkbox state
+        function sendReboot() {
+            const interpolatorCheckbox = document.getElementById('interpolatorCheckbox');
+            const selectedValue = interpolatorCheckbox.checked ? 0 : 1;
+
+            window.location.href = `/reboot?selected=${selectedValue}`;
+        }
+
+        // Ensure Interpolator checkbox is selected on page load
+        document.addEventListener('DOMContentLoaded', function () {
+            const interpolatorCheckbox = document.getElementById('interpolatorCheckbox');
+            const rosCheckbox = document.getElementById('rosCheckbox');
+
+            interpolatorCheckbox.checked = true;
+            rosCheckbox.checked = false;
+            toggleCheckbox('interpolatorCheckbox');
+        });
+    </script>
+</body>
+</html>

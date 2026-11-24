@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Path Interpolator Configuration</title>
+    <style>
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background: 
+                radial-gradient(circle at center, rgba(250, 101, 37, 1), transparent), /* Radial gradient at the center */
+                linear-gradient(to left, rgba(35, 35, 35, 1), transparent), /* Linear gradient to the left */
+                linear-gradient(to right, rgba(35, 35, 35, 1), transparent); /* Linear gradient to the right */
+            background-blend-mode: multiply; /* Blend mode for background layers */
+        }
+
+        .container {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            height: fit-content;
+            padding: 20px;
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 20px;
+            width: 300px; /* Set fixed width */
+            height: fit-content; /* Set dynamic height */
+            background-color: #fff;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        .form {
+            background-color: #fff;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+            text-align: center;
+            width: 100%;
+            max-width: 600px;
+        }
+
+        label {
+            font-size: 18px;
+            margin-bottom: 10px;
+            display: block;
+            text-align: left;
+        }
+
+        input, select {
+            width: 100%;
+            padding: 10px;
+            margin-bottom: 15px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            box-sizing: border-box;
+            font-size: 16px;
+        }
+
+        button {
+            background-color: #ff7300;
+            color: #fff;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: background-color 0.5s ease;
+        }
+
+        button:hover {
+            background-color: #ff8826;
+        }
+
+        .points-container {
+            margin-top: 20px;
+        }
+
+        .point {
+            margin-bottom: 10px;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .point input {
+            width: calc(33.333% - 10px);
+        }
+
+        .delete-button {
+            background-color: #ff4c4c;
+            color: #fff;
+            padding: 5px 10px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        .delete-button:hover {
+            background-color: #ff0000;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Path Interpolator Configuration</h1>
+        <form class="form" id="configForm" action="/" method="get">
+            <label for="translationalSpeed">Translatorische Geschwindigkeit (m/s):</label>
+            <input type="number" id="translationalSpeed" name="translationalSpeed" min="0" step="0.01" placeholder="Translatorische Geschwindigkeit in m/s" value="0.15" required>
+            
+            <label for="translationalAcceleration">Translatorische Beschleunigung (m/s²):</label>
+            <input type="number" id="translationalAcceleration" name="translationalAcceleration" min="0" step="0.01" placeholder="Translatorische Beschleunigung in m/s²" value="0.05" required>
+            
+            <label for="rotationalSpeed">Rotatorische Geschwindigkeit (degrees/s):</label>
+            <input type="number" id="rotationalSpeed" name="rotationalSpeed" min="0" step="0.01" placeholder="Rotatorische Geschwindigkeit in degrees/s" value="0.2" required>
+            
+            <label for="rotationalAcceleration">Rotatorische Beschleunigung (degrees/s²):</label>
+            <input type="number" id="rotationalAcceleration" name="rotationalAcceleration" min="0" step="0.01" placeholder="Rotatorische Beschleunigung in degrees/s²" value="0.05" required>
+            
+            <!-- Hidden input to track number of points -->
+            <input type="hidden" id="pointCount" name="pointCount" value="2">
+
+            <div class="points-container" id="pointsContainer">
+                <label>Points:</label>
+                <div class="point">
+                    <input type="number" name="x1" placeholder="X (m)" min="0" step="0.01" value="0" required>
+                    <input type="number" name="y1" placeholder="Y (m)" min="0" step="0.01" value="0" required>
+                    <input type="number" name="theta1" placeholder="Theta (°)" min="0" step="0.01" value="0" required>
+                    <button type="button" class="delete-button" onclick="removePoint(this)">Delete</button>
+                </div>
+                <div class="point">
+                    <input type="number" name="x2" placeholder="X (m)" min="0" step="0.01" required>
+                    <input type="number" name="y2" placeholder="Y (m)" min="0" step="0.01" required>
+                    <input type="number" name="theta2" placeholder="Theta (°)" min="0" step="0.01" required>
+                    <button type="button" class="delete-button" onclick="removePoint(this)">Delete</button>
+                </div>
+                <!-- Additional points will be added here -->
+            </div>
+            
+            <button type="button" id="addPointButton">Add Point</button>
+            <button type="submit">Start</button>
+        </form>
+    </div>
+
+    <script>
+        let pointCount = 2;
+        const maxPoints = 6;
+
+        function updatePointCount() {
+            document.getElementById('pointCount').value = pointCount;
+        }
+
+        function removePoint(button) {
+            const pointContainer = button.parentElement;
+            if (pointContainer.parentElement.children.length > 2) {
+                pointContainer.remove();
+                pointCount--;
+                updatePointCount();
+                updatePointNames();
+            } else {
+                alert('You must have at least 2 points.');
+            }
+        }
+
+        function updatePointNames() {
+            const points = document.querySelectorAll('.point');
+            points.forEach((point, index) => {
+                point.querySelectorAll('input').forEach((input, i) => {
+                    const name = ['x', 'y', 'theta'][i];
+                    input.name = `${name}${index + 1}`;
+                });
+            });
+        }
+
+        document.getElementById('addPointButton').addEventListener('click', function() {
+            if (pointCount < maxPoints) {
+                pointCount++;
+                const container = document.getElementById('pointsContainer');
+                const newPoint = document.createElement('div');
+                newPoint.classList.add('point');
+                newPoint.innerHTML = `
+                    <input type="number" name="x${pointCount}" placeholder="X (m)" min="0" step="0.01" required>
+                    <input type="number" name="y${pointCount}" placeholder="Y (m)" min="0" step="0.01" required>
+                    <input type="number" name="theta${pointCount}" placeholder="Theta (°)" min="0" step="0.01" required>
+                    <button type="button" class="delete-button" onclick="removePoint(this)">Delete</button>
+                `;
+                container.appendChild(newPoint);
+                updatePointCount();
+            } else {
+                alert('You can only add up to 6 points.');
+            }
+        });
+    </script>
+</body>
+</html>
+

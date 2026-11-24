@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <title>Kinematik Mecanum</title>
+    <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+    <div class="layout-col">
+        <h1>Kinematik Konfiguration</h1>
+        <form id="form" action="/kinematics" method="get">
+            <div class="layout-col">
+            <div class="box">
+                <h2>Mecanum - Matrix</h2>
+                <table class="matrix-table"><tbody>
+                    <tr><td><input type="string" name="111" required ></td><td><input type="string" name="112" required ></td><td><input type="string" name="113" required ></td></tr>
+                    <tr><td><input type="string" name="121" required ></td><td><input type="string" name="122" required ></td><td><input type="string" name="123" required ></td></tr>
+                    <tr><td><input type="string" name="131" required ></td><td><input type="string" name="132" required ></td><td><input type="string" name="133" required ></td></tr>
+                    <tr><td><input type="string" name="141" required ></td><td><input type="string" name="142" required ></td><td><input type="string" name="143" required ></td></tr>
+                </tbody></table>
+                <label>Scalar:</label>
+                <input type="string" name="1" required >
+                <h2>Inverse-Matrix</h2>
+                <table class="matrix-table"><tbody>
+                    <tr><td><input type="string" name="211" required ></td><td><input type="string" name="212" required ></td><td><input type="string" name="213" required ></td><td><input type="string" name="214" required ></td></tr>
+                    <tr><td><input type="string" name="221" required ></td><td><input type="string" name="222" required ></td><td><input type="string" name="223" required ><td><input type="string" name="224" required ></td></td></tr>
+                    <tr><td><input type="string" name="231" required ></td><td><input type="string" name="232" required ></td><td><input type="string" name="233" required ><td><input type="string" name="234" required ></td></td></tr>
+                </tbody></table>
+                <label>Scalar:</label>
+                <input type="string" name="2" required >
+            </div>
+            <button id="saveMatrixBtn" class="link" type="submit">Matrix speichern</button>
+            </div>
+        </form>
+        <button class="link" onclick="window.location.href='/'" >Hauptmenü</button>
+        <div class="info-box">
+            <p>
+                Die Eingabefelder akzeptieren sowohl reine Zahlen und &pi; als auch einfache mathematische Ausdrücke.<br>Diese werden automatisch ausgewertet, bevor sie gespeichert werden.
+            </p>
+            <p><strong>Unterstützte Operationen:</strong></p>
+            <ul>
+                <li><code>+</code> Addition (z.&nbsp;B. <code>3 + 4</code> → <code>7</code>)</li>
+                <li><code>-</code> Subtraktion (z.&nbsp;B. <code>7 - 2</code> → <code>5</code>)</li>
+                <li><code>*</code> Multiplikation (z.&nbsp;B. <code>2 * 3</code> → <code>6</code>)</li>
+                <li><code>/</code> Division (z.&nbsp;B. <code>10 / 5</code> → <code>2</code>)</li>
+                <li><code>PI</code> &pi; (z.&nbsp;B. <code>PI</code> → <code>3.14...</code>)</li>
+                <li><code>sqrt(x)</code> Quadratwurzel (z.&nbsp;B. <code>sqrt(2*2)</code> → <code>2</code>)</li>
+                <li><code>sin(x)</code> Sinusfunktion (z.&nbsp;B. <code>sin(PI)</code> → <code>0</code>)</li>
+                <li><code>cos(x)</code> Kosinusfunktion (z.&nbsp;B. <code>cos(PI/2)</code> → <code>0</code>)</li>
+                <li><code>tan(x)</code> Tangensfunktion (z.&nbsp;B. <code>tan(PI)</code> → <code>0</code>) (z.&nbsp;B. <code>tan(PI/2)</code> → <code>INF</code> -> <code>1000</code>)</li></li>
+                <li><code>pow(x, y)</code> Potenzfunktion (z.&nbsp;B. <code>pow(2, 3)</code> → <code>8</code>)</li>
+            </ul>
+            <p>
+                <strong>Hinweise:</strong><br>
+                • Verwenden Sie einen Punkt (<code>.</code>) als Dezimaltrennzeichen (z.&nbsp;B. <code>3.14</code>).<br>
+                • Leerzeichen sind optional, aber erlaubt (z.&nbsp;B. <code>4 / 2</code>).<br>
+                • Ungültige Ausdrücke werden stillschweigend ignoriert.
+            </p>
+        </div>
+    </div>
+
+ <script>
+    // Restore inputs from URL
+    const urlParams = new URLSearchParams(window.location.search);
+    document.querySelectorAll('input[name]').forEach(input => {
+        const name = input.name;
+        if (urlParams.has(name)) {
+            input.value = urlParams.get(name);
+        }
+    });
+
+    function isSaved() {
+        const paramsForm = new URLSearchParams(new FormData(document.querySelector("#form")));
+        const paramsUrl  = new URLSearchParams(window.location.search);
+
+        // Wenn URL leer ist → nicht saved
+        if (paramsUrl.size === 0) return false;
+
+        for (const key of paramsForm.keys()) {
+            const a = paramsForm.get(key);
+            const b = paramsUrl.get(key);
+
+            if (b === null) return false;
+
+            let na = parseFloat(a);
+            let nb = parseFloat(b);
+
+            if (!isNaN(na) && !isNaN(nb)) {
+                if (Math.abs(na - nb) > 0.000001) return false;
+            } else {
+                if (a !== b) return false;
+            }
+        }
+        return true;
+    }
+
+    function isLoadedState() {
+        const paramsUrl = new URLSearchParams(window.location.search);
+        return paramsUrl.size === 0;
+    }
+
+    function updateSaveState() {
+        console.log("Update");
+        const btn = document.getElementById("saveMatrixBtn");
+
+        // Klassen zurücksetzen
+        btn.classList.remove("unsaved", "saved", "loaded");
+
+        if (isLoadedState()) {
+            btn.classList.add("loaded");
+        } else if (isSaved()) {
+            btn.classList.add("saved");
+        } else {
+            btn.classList.add("unsaved");
+        }
+    }
+    document.addEventListener("DOMContentLoaded", () => {
+        const form = document.querySelector("#form");
+        console.log("Form:", form);
+        form.addEventListener("input", (event) => {
+            if (event.target.matches("input")) {
+                updateSaveState();
+            }
+        });
+
+        updateSaveState();
+    });
+
+    // --- Your SSE code, but call updateSaveState at the end ---
+    let eventSource = new EventSource('/sse_transform?type=mecanum');
+
+    eventSource.onmessage = function(event) {
+        try {
+            const data = JSON.parse(event.data);
+
+            const matrix1 = data.matrix || [[0, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0]];
+            const matrix2 = data.inverse || [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]];
+            const scalar1 = data.scalar1 || 0;
+            const scalar2 = data.scalar2 || 0;
+
+            matrix1.forEach((row, i) => {
+                row.forEach((val, j) => {
+                    const input = document.querySelector(`input[name="${1}${i+1}${j+1}"]`);
+                    if (input) input.value = parseFloat(val).toFixed(2);
+                });
+            });
+
+            const scalarInput1 = document.querySelector(`input[name="1"]`);
+            if (scalarInput1) scalarInput1.value = scalar1.toFixed(2);
+
+            matrix2.forEach((row, i) => {
+                row.forEach((val, j) => {
+                    const input = document.querySelector(`input[name="${2}${i+1}${j+1}"]`);
+                    if (input) input.value = parseFloat(val).toFixed(2);
+                });
+            });
+
+            const scalarInput2 = document.querySelector(`input[name="2"]`);
+            if (scalarInput2) scalarInput2.value = scalar2.toFixed(2);
+
+            // ✅ After SSE filled everything, re-check saved state
+            updateSaveState();
+
+        } catch (err) {
+            console.error("SSE data error:", err);
+        }
+        eventSource.close();
+    };
+</script>
+
+</body>
+</html>
