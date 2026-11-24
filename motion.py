@@ -34,17 +34,17 @@ __all__ = core.__all__ + [
     'get_map_pose', 'goto_map',
 ]
 
-# Speed ramps (ramp=True)
-LINEAR_ACCEL = 0.5     # m/s², speed up / slow down this fast
-ANGULAR_ACCEL = 90.0   # degrees/s²
-MIN_LINEAR = 0.02      # m/s, never slower than this, or it would never arrive
-MIN_ANGULAR = 5.0      # degrees/s
+# Speed ramps (ramp=True): speed goes up and down gradually, so the robot doesn't jerk
+LINEAR_ACCEL = 0.5  # m/s², speed up / slow down this fast
+ANGULAR_ACCEL = 90.0  # degrees/s²
+MIN_LINEAR = 0.02  # m/s, never slower than this, or it would never arrive
+MIN_ANGULAR = 5.0  # degrees/s
 
 # goto_xy / goto_pose / turn_to
 POS_TOLERANCE = 0.005  # m, close enough to the target point
-YAW_TOLERANCE = 0.5    # degrees
-DEFAULT_TURN = 30.0    # degrees/s, goto_pose when only turning
-MAX_TURN = 90.0        # degrees/s, goto_pose turning limit
+YAW_TOLERANCE = 0.5  # degrees
+DEFAULT_TURN = 30.0  # degrees/s, goto_pose when only turning
+MAX_TURN = 90.0  # degrees/s, goto_pose turning limit
 
 
 # ---------- direct control ----------
@@ -63,17 +63,19 @@ def drive(x, y, turn, ms):
 # ---------- straight lines, the robot doesn't turn ----------
 
 def move_direction(vel, distance, angle, ramp=True):
-    """Any direction: angle 0 = forward, 90 = left, -90 = right, 180 = backward, 45 = front-left."""
+    """Drive `distance` m at `vel` m/s in any direction.
+    angle 0 = forward, 90 = left, -90 = right, 180 = backward, 45 = front-left."""
     speed, goal = abs(vel), abs(distance)
-    x, y = speed * math.cos(math.radians(angle)), speed * math.sin(math.radians(angle))
-    sx, sy, _ = core._update_pose()
+    x_speed = speed * math.cos(math.radians(angle))
+    y_speed = speed * math.sin(math.radians(angle))
+    start_x, start_y, _ = core._update_pose()
 
     def step():
-        done = math.hypot(core._pose[0] - sx, core._pose[1] - sy)
-        if done >= goal:
+        travelled = math.hypot(core._pose[0] - start_x, core._pose[1] - start_y)
+        if travelled >= goal:
             return None
-        f = core._ramp_factor(done, goal - done, speed, LINEAR_ACCEL, MIN_LINEAR) if ramp else 1
-        return x * f, y * f, 0
+        factor = core._ramp_factor(travelled, goal - travelled, speed, LINEAR_ACCEL, MIN_LINEAR) if ramp else 1
+        return x_speed * factor, y_speed * factor, 0
 
     core._run_move('distance', core._timeout(goal, speed), step)
 
@@ -97,10 +99,12 @@ def strafe_right(vel, distance, ramp=True):
 
 # ---------- constant speeds, stop after turning `degree` ----------
 
-def _move_angle(x, y, turn, degree, ramp):
-    """Send (x, y, turn) until the heading has changed by `degree` degrees.
-    Used for rotate (x = y = 0), curve (x), orbit (y) and rotate_around (x and y)."""
-    goal, turn_speed, linear_speed = abs(degree), abs(turn), math.hypot(x, y)
+def _move_angle(x_speed, y_speed, spin, degree, ramp):
+    """Send (x_speed, y_speed, spin) until the heading has changed by `degree` degrees.
+    Used for rotate (x and y are 0), curve (x), orbit (y) and rotate_around (x and y)."""
+    goal = abs(degree)
+    spin_speed = abs(spin)
+    drive_speed = math.hypot(x_speed, y_speed)
     last_yaw = core._update_pose()[2]
     turned = 0.0  # degrees, summed up so turns larger than 180 degrees work too
 
@@ -111,18 +115,18 @@ def _move_angle(x, y, turn, degree, ramp):
         done = abs(turned)
         if done >= goal:
             return None
-        f = 1.0
+        factor = 1.0
         if ramp:
-            f = core._ramp_factor(done, goal - done, turn_speed, ANGULAR_ACCEL, MIN_ANGULAR)
-            if linear_speed > 0:
-                # Same ramp for the driving part: meters driven = degrees turned * linear / turn speed
-                m_per_deg = linear_speed / turn_speed
-                f = min(f, core._ramp_factor(done * m_per_deg, (goal - done) * m_per_deg, linear_speed,
-                                        LINEAR_ACCEL, MIN_LINEAR))
+            factor = core._ramp_factor(done, goal - done, spin_speed, ANGULAR_ACCEL, MIN_ANGULAR)
+            if drive_speed > 0:
+                # Same ramp for the driving part: metres driven = degrees turned * drive speed / spin speed
+                m_per_deg = drive_speed / spin_speed
+                factor = min(factor, core._ramp_factor(done * m_per_deg, (goal - done) * m_per_deg,
+                                                       drive_speed, LINEAR_ACCEL, MIN_LINEAR))
         # One factor for all three speeds, so curves keep their radius while ramping
-        return x * f, y * f, turn * f
+        return x_speed * factor, y_speed * factor, spin * factor
 
-    core._run_move('angle', core._timeout(goal, turn_speed), step)
+    core._run_move('angle', core._timeout(goal, spin_speed), step)
 
 
 def rotate_left(degree, vel, ramp=True):
@@ -171,14 +175,15 @@ def orbit_right(vel, radius, degree, ramp=True):
 def rotate_around(dx, dy, degree, vel, ramp=True):
     """Rotate by `degree` around the point (dx m in front, dy m left) at vel degrees/s.
     Keeps the point still: its speed (x - w*dy, y + w*dx) must be 0."""
-    turn = math.copysign(abs(vel), degree)
-    w = math.radians(turn)
-    _move_angle(w * dy, -w * dx, turn, degree, ramp)
+    spin = math.copysign(abs(vel), degree)
+    w = math.radians(spin)
+    _move_angle(w * dy, -w * dx, spin, degree, ramp)
 
 
 # ---------- go to a position (x, y measured from the start, like get_x/get_y) ----------
 
 def _move_to(vel, tx, ty, use_yaw, tyaw, ramp):
+    """Drive to (tx, ty) and, if use_yaw, turn to heading tyaw, arriving at both together."""
     speed = abs(vel)
     px, py, pyaw = core._relative_pose()
     dist0 = math.hypot(tx - px, ty - py)
@@ -196,6 +201,7 @@ def _move_to(vel, tx, ty, use_yaw, tyaw, ramp):
         ex, ey = tx - x, ty - y
         dist = math.hypot(ex, ey)
         yaw_err = math.degrees(core._wrap(math.radians(tyaw) - yaw))
+
         # Done when close enough, or when it just went past (distance growing again / error changed sign)
         if dist <= POS_TOLERANCE or (dist > state['last'] and dist < speed * 0.1 + POS_TOLERANCE):
             state['pos_done'] = True
@@ -204,16 +210,18 @@ def _move_to(vel, tx, ty, use_yaw, tyaw, ramp):
             state['yaw_done'] = True
         if state['pos_done'] and state['yaw_done']:
             return None
-        cx = cy = ct = 0.0
+
+        x_speed = y_speed = spin = 0.0
         if not state['pos_done']:
-            f = core._ramp_factor(dist0 - dist, dist, speed, LINEAR_ACCEL, MIN_LINEAR) if ramp else 1
-            d = math.atan2(ey, ex) - yaw  # direction to the target, seen from the robot
-            cx, cy = speed * f * math.cos(d), speed * f * math.sin(d)
+            factor = core._ramp_factor(dist0 - dist, dist, speed, LINEAR_ACCEL, MIN_LINEAR) if ramp else 1
+            direction = math.atan2(ey, ex) - yaw  # direction to the target, seen from the robot
+            x_speed = speed * factor * math.cos(direction)
+            y_speed = speed * factor * math.sin(direction)
         if not state['yaw_done']:
             done = abs(yaw_err0) - abs(yaw_err)
-            f = core._ramp_factor(done, abs(yaw_err), turn_speed, ANGULAR_ACCEL, MIN_ANGULAR) if ramp else 1
-            ct = math.copysign(turn_speed * f, yaw_err)
-        return cx, cy, ct
+            factor = core._ramp_factor(done, abs(yaw_err), turn_speed, ANGULAR_ACCEL, MIN_ANGULAR) if ramp else 1
+            spin = math.copysign(turn_speed * factor, yaw_err)
+        return x_speed, y_speed, spin
 
     core._run_move('target', timeout, step)
 
@@ -234,19 +242,21 @@ def move_spinning(vel, distance, angle, spin, ramp=True):
     """Drive `distance` m in direction `angle` (fixed when the call starts) while turning at
     `spin` degrees/s (> 0 = counterclockwise). The path stays straight."""
     speed, goal = abs(vel), abs(distance)
-    sx, sy, syaw = core._update_pose()
-    world_dir = syaw + math.radians(angle)  # fixed direction in the room
+    start_x, start_y, start_yaw = core._update_pose()
+    world_dir = start_yaw + math.radians(angle)  # fixed direction in the room
 
     def step():
         x, y, yaw = core._pose
-        done = math.hypot(x - sx, y - sy)
-        if done >= goal:
+        travelled = math.hypot(x - start_x, y - start_y)
+        if travelled >= goal:
             return None
-        f = core._ramp_factor(done, goal - done, speed, LINEAR_ACCEL, MIN_LINEAR) if ramp else 1
+        factor = core._ramp_factor(travelled, goal - travelled, speed, LINEAR_ACCEL, MIN_LINEAR) if ramp else 1
         # The robot keeps this command until the next one, so aim for its heading halfway through
-        yaw += math.radians(spin * f) * core.CMD_INTERVAL / 2
-        d = world_dir - yaw  # room direction, seen from the robot
-        return speed * f * math.cos(d), speed * f * math.sin(d), spin * f
+        yaw += math.radians(spin * factor) * core.CMD_INTERVAL / 2
+        direction = world_dir - yaw  # room direction, seen from the robot
+        return (speed * factor * math.cos(direction),
+                speed * factor * math.sin(direction),
+                spin * factor)
 
     core._run_move('distance', core._timeout(goal, speed), step)
 
@@ -258,15 +268,15 @@ def move_spinning(vel, distance, angle, spin, ramp=True):
 def _wait_map_pose(timeout=8.0):
     """The map pose, waiting a moment for it: a new program gets SLAM's map frame only after ~2-5 s."""
     end = time.monotonic() + timeout
-    while (p := core._map_pose()) is None and time.monotonic() < end:
+    while (pose := core._map_pose()) is None and time.monotonic() < end:
         time.sleep(0.1)
-    return p
+    return pose
 
 
 def get_map_pose():
     """(x m, y m, yaw degrees) on the SLAM map, or None if SLAM isn't running."""
-    p = _wait_map_pose()
-    return None if p is None else (p[0], p[1], math.degrees(p[2]))
+    pose = _wait_map_pose()
+    return None if pose is None else (pose[0], pose[1], math.degrees(pose[2]))
 
 
 def goto_map(vel, x, y, ramp=True, forward_only=False, turn_speed=25, look_ahead=0.2, clearance=0.03,
@@ -283,62 +293,78 @@ def goto_map(vel, x, y, ramp=True, forward_only=False, turn_speed=25, look_ahead
       turning: doesn't turn if something is inside the circle the corners sweep (+ turn_clearance);
                then it backs up 10 cm (if free behind) and tries again once"""
     speed = abs(vel)
-    p = _wait_map_pose()
-    if p is None:
+    pose = _wait_map_pose()
+    if pose is None:
         print('goto_map: no SLAM map pose (./start.sh --slam)', flush=True)
         return False
-    dist0 = math.hypot(x - p[0], y - p[1])
-    s = {'blocked': False, 'last': dist0, 'turning': forward_only, 'start': dist0, 'backed_up': False}
+
+    dist0 = math.hypot(x - pose[0], y - pose[1])
+    state = {
+        'blocked': False,  # False, True, or 'turn' (blocked while turning on the spot)
+        'last': dist0,  # distance to the target at the previous step
+        'turning': forward_only,  # forward_only: True while turning on the spot, False while driving
+        'start': dist0,  # distance at the start of the current ramp
+        'backed_up': False,
+    }
 
     def step():
-        p = core._map_pose()
-        if p is None:
-            s['blocked'] = True
+        pose = core._map_pose()
+        if pose is None:
+            state['blocked'] = True
             return None
-        ex, ey = x - p[0], y - p[1]
+
+        ex, ey = x - pose[0], y - pose[1]
         dist = math.hypot(ex, ey)
-        # arrived, or just went past it (distance growing again close to the target)
-        if dist <= 0.03 or (dist > s['last'] and dist < 0.08):
+        # Arrived, or just went past it (distance growing again close to the target)
+        if dist <= 0.03 or (dist > state['last'] and dist < 0.08):
             return None
-        s['last'] = dist
-        d = core._wrap(math.atan2(ey, ex) - p[2])  # direction to the target, seen from the robot
+        state['last'] = dist
+
+        bearing = core._wrap(math.atan2(ey, ex) - pose[2])  # direction to the target, seen from the robot
         if forward_only:
-            err = math.degrees(d)
+            bearing_deg = math.degrees(bearing)
             now = time.monotonic()
-            if now < s.get('settle', 0):
-                return 0, 0, 0  # let the robot really stop before the next phase (commands act ~0.6 s late)
-            # turn on the spot until facing the target (±3°); turn again if it drifts off by > 15°
-            if s['turning'] and abs(err) < 3 or not s['turning'] and abs(err) > 15:
-                s['turning'] = not s['turning']
-                s['start'] = dist  # ramp up again after each turn
-                s['settle'] = now + core.LATENCY
+            if now < state.get('settle', 0):
+                # Let the robot really stop before the next phase (commands act ~0.6 s late)
+                return 0, 0, 0
+            # Turn on the spot until facing the target (±3°); turn again if it drifts off by > 15°
+            switch_to_turn = not state['turning'] and abs(bearing_deg) > 15
+            switch_to_drive = state['turning'] and abs(bearing_deg) < 3
+            if switch_to_turn or switch_to_drive:
+                state['turning'] = not state['turning']
+                state['start'] = dist  # ramp up again after each turn
+                state['settle'] = now + core.LATENCY
                 return 0, 0, 0  # stop at once: otherwise the turn would go on until the next command
-            if s['turning']:
+            if state['turning']:
                 if core._turn_blocked(turn_clearance):
-                    s['blocked'] = 'turn'
+                    state['blocked'] = 'turn'
                     return None
-                turn = math.copysign(min(turn_speed, max(MIN_ANGULAR, abs(err) * 1.5)), err)  # slower when close
-                return 0, 0, turn
-            d = 0.0  # driving straight ahead
-        if core._path_blocked(d, look_ahead, clearance):
+                # Slower when close to the target direction
+                spin = math.copysign(min(turn_speed, max(MIN_ANGULAR, abs(bearing_deg) * 1.5)), bearing_deg)
+                return 0, 0, spin
+            bearing = 0.0  # driving straight ahead
+
+        if core._path_blocked(bearing, look_ahead, clearance):
             print('goto_map: obstacle in the way, stopped', flush=True)
-            s['blocked'] = True
+            state['blocked'] = True
             return None
-        f = core._ramp_factor(s['start'] - dist, dist, speed, LINEAR_ACCEL, MIN_LINEAR) if ramp else 1
+
+        factor = core._ramp_factor(state['start'] - dist, dist, speed, LINEAR_ACCEL, MIN_LINEAR) if ramp else 1
         if forward_only:
-            steer = max(-10.0, min(10.0, math.degrees(core._wrap(math.atan2(ey, ex) - p[2]))))  # gentle
-            return speed * f, 0, steer
-        return speed * f * math.cos(d), speed * f * math.sin(d), 0
+            # Gentle steering correction, at most 10 degrees/s
+            steer = max(-10.0, min(10.0, math.degrees(core._wrap(math.atan2(ey, ex) - pose[2]))))
+            return speed * factor, 0, steer
+        return speed * factor * math.cos(bearing), speed * factor * math.sin(bearing), 0
 
     timeout = core._timeout(dist0, speed) + (360 / turn_speed if forward_only else 0)  # + time for turning
     while True:
         finished = core._run_move('target', timeout, step)
-        if s['blocked'] == 'turn' and not s['backed_up'] and not core._path_blocked(math.pi, 0.12, clearance):
+        if state['blocked'] == 'turn' and not state['backed_up'] and not core._path_blocked(math.pi, 0.12, clearance):
             print('goto_map: too close to turn, backing up 10 cm', flush=True)
-            s['backed_up'] = True
+            state['backed_up'] = True
             backward(min(speed, 0.08), 0.10)
-            s.update(blocked=False, turning=True, last=math.inf)
+            state.update(blocked=False, turning=True, last=math.inf)
             continue
-        if s['blocked'] == 'turn':
+        if state['blocked'] == 'turn':
             print('goto_map: too close to something to turn, stopped', flush=True)
-        return finished and not s['blocked']
+        return finished and not state['blocked']

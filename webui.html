@@ -153,6 +153,26 @@
     margin: 10px 0 0; height: 170px; overflow: auto; font: 12px/1.45 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
     white-space: pre-wrap; word-break: break-word; color: #c9d3e0; scrollbar-width: thin; }
   #log:empty::before { content: "no script run yet"; color: var(--faint); }
+  #ros, #roscmdout { background: rgba(4,7,12,.65); border: 1px solid var(--stroke); border-radius: 12px; padding: 10px 12px;
+    margin: 10px 0 0; height: 220px; overflow: auto; font: 12px/1.45 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    white-space: pre-wrap; word-break: break-word; color: #c9d3e0; scrollbar-width: thin; }
+  #ros:empty::before { content: "no messages yet"; color: var(--faint); }
+  #ros .t { color: var(--faint); } #ros .n { color: var(--muted); }
+  #ros .l-10 { color: var(--faint); } #ros .l-30 { color: #ffd166; } #ros .l-40, #ros .l-50 { color: var(--bad); }
+  #roscmdout:empty::before { content: "command output appears here"; color: var(--faint); }
+  .panel-toggle { pointer-events: auto; padding: 6px 14px; border-radius: 999px; font-size: 12px;
+    background: var(--glass); backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur); }
+  /* Scripts and ROS 2 console: floating panels at the top left of the map, one open at a time */
+  .float-panel { position: absolute; left: 14px; top: 58px; bottom: 14px; width: min(560px, calc(100% - 28px));
+    padding: 12px; display: flex; flex-direction: column; gap: 8px; z-index: 3; }
+  @media (max-width: 860px) { .float-panel { top: 110px; } }
+  .float-panel h2 { margin: 0 auto 0 0; }
+  .float-panel .row + .row { margin-top: 0; }
+  .float-panel #log, .float-panel #ros { flex: 1 1 0; min-height: 120px; height: auto; margin: 0; }
+  #rosfilter { flex: 0 0 auto; width: auto; }
+  .float-panel #roscmdout { flex: 0 0 auto; height: 110px; margin: 0; }
+  .float-panel #roscmd input { flex: 1; min-width: 0; font: 13px ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+  .float-panel .muted { margin: 0; }
   [hidden] { display: none !important; }
   details > summary { list-style: none; cursor: pointer; }
   details > summary::-webkit-details-marker { display: none; }
@@ -168,6 +188,8 @@
 <main id="view">
   <canvas id="c" aria-label="Map: robot, trail, lidar and SLAM map"></canvas>
   <div class="overlay">
+    <button class="toggle panel-toggle" id="scriptbtn" aria-expanded="false" aria-controls="scriptpanel" title="Run scripts from scripts/ (Esc closes)">Scripts</button>
+    <button class="toggle panel-toggle" id="rosbtn" aria-expanded="false" aria-controls="rospanel" title="ROS 2 console and commands (Esc closes)">ROS 2</button>
     <span class="chip"><span class="dot" id="conn"></span><span id="src">no connection</span></span>
     <span class="chip" id="posechip">x – y – yaw –</span>
     <span class="chip" id="lidarchip">lidar –</span>
@@ -185,6 +207,41 @@
     <span><i style="background:#ff5f7a"></i>lidar</span>
     <span><i style="background:#e6e8eb"></i>map walls</span>
   </div>
+  <section class="float-panel glass" id="scriptpanel" aria-label="Scripts" hidden>
+    <div class="row">
+      <h2>Scripts <span class="tag">scripts/</span></h2>
+      <button id="scriptclose" aria-label="Close scripts" title="Close (Esc)">✕</button>
+    </div>
+    <div class="row">
+      <select id="scriptsel" aria-label="Script"></select>
+      <button id="run" class="primary">▶ Run</button>
+      <button id="reload" title="Reload the list" aria-label="Reload the list">⟳</button>
+    </div>
+    <pre id="log"></pre>
+    <p class="muted" id="scriptstate">Manual driving is blocked while a script runs. STOP ends the script.</p>
+  </section>
+  <section class="float-panel glass" id="rospanel" aria-label="ROS 2 console" hidden>
+    <div class="row">
+      <h2>ROS 2 console <span class="tag">/rosout</span></h2>
+      <select id="rosfilter" aria-label="Minimum level">
+        <option value="10">All levels</option>
+        <option value="20">Info and up</option>
+        <option value="30">Warnings and up</option>
+        <option value="40">Errors only</option>
+      </select>
+      <button id="rosclear">Clear</button>
+      <button id="rosclose" aria-label="Close console" title="Close (Esc)">✕</button>
+    </div>
+    <div id="ros" role="log"></div>
+    <form class="row" id="roscmd">
+      <input type="text" id="roscmdin" placeholder="ros2 command, e.g. topic list" autocomplete="off" spellcheck="false" aria-label="ros2 command">
+      <button class="primary" id="roscmdbtn">Run</button>
+    </form>
+    <pre id="roscmdout"></pre>
+    <p class="muted">Any <code>ros2</code> command, typed with or without the <code>ros2</code> prefix. No shell:
+      no pipes or <code>&amp;&amp;</code>. Stopped after 15 s if still running (e.g. <code>topic echo</code>).
+      <code>param list</code> asks each node on its own. If node lists look wrong, try <code>daemon stop</code>.</p>
+  </section>
 </main>
 
 <aside>
@@ -196,16 +253,6 @@
     <button id="stop" title="Stops driving and a running script (Space)">STOP</button>
   </div>
 
-  <section class="card glass">
-    <h2>Scripts <span class="tag">scripts/</span></h2>
-    <div class="row">
-      <select id="scriptsel" aria-label="Script"></select>
-      <button id="run" class="primary">▶ Run</button>
-      <button id="reload" title="Reload the list" aria-label="Reload the list">⟳</button>
-    </div>
-    <pre id="log"></pre>
-    <p class="muted" id="scriptstate">Manual driving is blocked while a script runs. STOP ends the script.</p>
-  </section>
 
   <section class="card glass">
     <h2>Drive <span class="tag">hold</span></h2>
@@ -380,7 +427,7 @@ const KEYS = {
   KeyQ: { x: 0, y: 0, t: 1 }, KeyE: { x: 0, y: 0, t: -1 },
 };
 addEventListener("keydown", (e) => {
-  if (e.target.tagName === "INPUT" && e.target.type !== "range") return;  // typing a name must not drive
+  if (e.target.tagName === "SELECT" || (e.target.tagName === "INPUT" && e.target.type !== "range")) return;  // typing must not drive
   if (e.code === "Space") { e.preventDefault(); stopAll(); return; }
   const d = KEYS[e.code];
   if (!d) return;
@@ -433,6 +480,83 @@ function showScript(sc) {
     : "Manual driving is blocked while a script runs. STOP ends the script.";
 }
 const runSelected = $("run").onclick;
+
+// ---------- ROS 2 console (/rosout) ----------
+const LEVEL_NAMES = { 10: "DEBUG", 20: "INFO", 30: "WARN", 40: "ERROR", 50: "FATAL" };
+let rosSince = 0;  // newest message id already shown
+$("rosfilter").value = store.get("rosfilter", "10");
+$("rosfilter").onchange = () => {
+  store.set("rosfilter", $("rosfilter").value);
+  applyRosFilter();
+};
+function applyRosFilter() {
+  const min = +$("rosfilter").value;
+  for (const row of $("ros").children) row.hidden = +row.dataset.level < min;
+}
+$("rosclear").onclick = () => { $("ros").replaceChildren(); };
+async function pollRosout() {
+  try {
+    const s = await (await fetch(`/rosout?since=${rosSince}`, { cache: "no-store" })).json();
+    if (s.last < rosSince) { rosSince = 0; $("ros").replaceChildren(); return; }  // webui restarted: start over
+    const ros = $("ros");
+    const atBottom = ros.scrollTop + ros.clientHeight >= ros.scrollHeight - 4;
+    const min = +$("rosfilter").value;
+    for (const e of s.entries) {
+      const row = document.createElement("div");
+      row.className = `l-${e.level}`;
+      row.dataset.level = e.level;
+      row.hidden = e.level < min;
+      const time = new Date(e.t * 1000).toTimeString().slice(0, 8);
+      const level = (LEVEL_NAMES[e.level] || e.level).padEnd(5);
+      const t = document.createElement("span"), n = document.createElement("span");
+      t.className = "t"; n.className = "n";
+      t.textContent = `${time} ${level} `;
+      n.textContent = `[${e.name}] `;
+      row.append(t, n, document.createTextNode(e.msg));
+      ros.append(row);
+      rosSince = e.id;
+    }
+    while (ros.children.length > 1000) ros.firstElementChild.remove();
+    if (s.entries.length && atBottom) ros.scrollTop = ros.scrollHeight;
+  } catch {}
+  setTimeout(pollRosout, 500);
+}
+pollRosout();
+// ---------- floating panels at the top left (Scripts, ROS 2): one open at a time ----------
+const PANELS = { scriptbtn: "scriptpanel", rosbtn: "rospanel" };  // button -> panel
+function showPanel(button) {  // null closes all
+  for (const [b, panel] of Object.entries(PANELS)) {
+    const open = b === button;
+    $(panel).hidden = !open;
+    $(b).classList.toggle("on", open);
+    $(b).setAttribute("aria-expanded", String(open));
+  }
+  if (button === "rosbtn") $("roscmdin").focus();
+}
+for (const [b, panel] of Object.entries(PANELS)) $(b).onclick = () => showPanel($(panel).hidden ? b : null);
+$("scriptclose").onclick = $("rosclose").onclick = () => showPanel(null);
+addEventListener("keydown", (e) => { if (e.code === "Escape") showPanel(null); });
+
+// ros2 commands typed by hand; they run on the laptop (webui.py), see ros2() there
+$("roscmd").onsubmit = async (e) => {
+  e.preventDefault();
+  const cmd = $("roscmdin").value.trim();
+  if (!cmd) return;
+  const shown = `$ ros2 ${cmd.replace(/^ros2\s+/, "")}`;
+  $("roscmdout").textContent = `${shown}\n… running`;
+  $("roscmdbtn").disabled = true;
+  try {
+    const r = await fetch("/ros2", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ cmd }) });
+    const s = await r.json();
+    $("roscmdout").textContent = r.ok
+      ? `${shown}\n${s.out}\n[${s.note || (s.code === 0 ? "done" : "exit code " + s.code)}]`
+      : `${shown}\n✗ ${s.error}`;
+  } catch {
+    $("roscmdout").textContent = `${shown}\n✗ no connection to webui.py`;
+  }
+  $("roscmdbtn").disabled = false;
+};
 
 // ---------- ROS domain ----------
 $("setdomain").onclick = async () => {

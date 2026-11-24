@@ -2,7 +2,7 @@
 from motion import *
 
 for i in range(1, 5):
-    forward(0.2, 1.0)
+    forward(0.2, 0.5)
     print(f'{i} after forward: ', end='')
     print_pose()
 

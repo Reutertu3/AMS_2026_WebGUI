@@ -13,6 +13,7 @@ import gzip
 import json
 import math
 import os
+import shlex
 import signal
 import subprocess
 import sys
@@ -24,6 +25,7 @@ from urllib.parse import parse_qs, urlparse
 import numpy as np
 import rclpy
 from geometry_msgs.msg import Twist
+from rcl_interfaces.msg import Log
 from nav_msgs.msg import OccupancyGrid
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy, qos_profile_sensor_data
@@ -45,6 +47,11 @@ except ImportError:
 CMD_INTERVAL = 0.5  # s, the robot only handles ~2 commands/s, faster ones queue up (README.md)
 DEADMAN = 0.8       # s without a command from the browser -> slow down to 0 (tab closed, WiFi gone)
 TICK = 0.05         # s, ramp update rate
+ROSOUT_KEEP = 1000  # newest ROS 2 log messages (/rosout) kept for the console in the page
+ROS2_TIMEOUT = 15   # s, a ros2 command from the page still running after this is stopped (e.g. topic echo)
+ROS2_OUTPUT = 20000  # characters of command output sent back to the page
+ROS2_NODE = 4        # s, `param list` without a node: wait this long for each node
+ROS2_PARAM_ALL = 40  # s, `param list` without a node: all nodes together
 # Real robot: if a wheel has to go faster than it can, the robot stalls for seconds (see WHEEL_MAX in
 # edurobot.py, same values). Commands are scaled so the fastest mecanum wheel stays within WHEEL_MAX:
 # |x| + |y| + WHEEL_LEVER * |turn| <= WHEEL_MAX. Not for the turtle.
@@ -151,6 +158,11 @@ class Bridge(Node):
         self.map = None
         self.map_seq = 0
         self.map_time = 0.0
+        # ROS 2 log messages of all nodes, for the console in the page. Each gets an increasing id.
+        self.rosout = collections.deque(maxlen=ROSOUT_KEEP)
+        self.rosout_seq = 0
+        self.rosout_lock = threading.Lock()
+        self.create_subscription(Log, 'rosout', self.on_rosout, QoSProfile(depth=100, reliability=ReliabilityPolicy.RELIABLE))
         self.reset_client = self.create_client(SlamReset, 'slam_toolbox/reset') if SlamReset else None
         self.lock = threading.Lock()
         self.target = [0.0, 0.0, 0.0]  # what the browser wants: x m/s, y m/s, turn rad/s
@@ -185,6 +197,69 @@ class Bridge(Node):
         self.map_seq += 1
         self.map_time = time.monotonic()
         self.map = m
+
+    def on_rosout(self, m):
+        with self.rosout_lock:
+            self.rosout_seq += 1
+            self.rosout.append({'id': self.rosout_seq, 't': m.stamp.sec + m.stamp.nanosec * 1e-9,
+                                'level': m.level, 'name': m.name, 'msg': m.msg})
+
+    def _run_ros2(self, args, timeout):
+        """`ros2 <args>` -> (output, exit code or None, note). A command still running after timeout s is stopped."""
+        try:
+            p = subprocess.Popen(['ros2'] + args, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                 stderr=subprocess.STDOUT)
+        except FileNotFoundError:
+            raise ValueError('ros2 not found: start webui.py with ./ros.sh')
+        note = ''
+        try:
+            out, _ = p.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            p.kill()
+            out, _ = p.communicate()  # what it printed so far
+            note = f'stopped after {timeout} s'
+        return out.decode(errors='replace'), p.returncode, note
+
+    def ros2(self, text):
+        """Run `ros2 <text>` for the page. No shell: only the ros2 program runs, so no pipes, && or other commands."""
+        args = shlex.split(text)
+        if args[:1] == ['ros2']:
+            args = args[1:]
+        if not args:
+            raise ValueError('type a ros2 command, e.g. topic list')
+        if args == ['param', 'list']:
+            out, code, note = self.ros2_param_list_all()
+        else:
+            out, code, note = self._run_ros2(args, ROS2_TIMEOUT)
+        if len(out) > ROS2_OUTPUT:
+            out = out[:ROS2_OUTPUT] + '\n… (output cut)'
+        return {'out': out, 'code': code, 'note': note}
+
+    def ros2_param_list_all(self):
+        """`ros2 param list` without a node waits for every node, and robot nodes that don't answer hold it up
+        until the timeout, printing nothing. So ask each node on its own, with a short wait per node."""
+        nodes_out, _, _ = self._run_ros2(['node', 'list'], ROS2_TIMEOUT)
+        nodes = sorted({line.strip() for line in nodes_out.splitlines() if line.startswith('/')})
+        deadline = time.monotonic() + ROS2_PARAM_ALL
+        parts = []
+        for node in nodes:
+            left = deadline - time.monotonic()
+            if left <= 0:
+                parts.append(f'{node}: not asked (time is up)')
+                continue
+            out, code, note = self._run_ros2(['param', 'list', node], min(ROS2_NODE, left))
+            if code == 0 and not note and 'Node not found' not in out:
+                parts.append(f'{node}:\n{out.rstrip()}')
+            else:
+                parts.append(f'{node}: no answer {note}'.rstrip())
+        return '\n'.join(parts) + '\n', 0, f'{len(nodes)} nodes asked one by one'
+
+    def rosout_state(self, since):
+        """Log messages with id > since, and the newest id (the page starts over if it's lower than it had)."""
+        with self.rosout_lock:
+            entries = [e for e in self.rosout if e['id'] > since]
+            last = self.rosout_seq
+        return {'entries': entries, 'last': last}
 
     def map_json(self):
         m = self.map
@@ -370,6 +445,9 @@ def make_handler(bridge, restart):
                 self.reply(200, bridge.state(int(q.get('log', ['0'])[0] or 0), int(q.get('run', ['0'])[0] or 0)))
             elif url.path == '/map':
                 self.reply(200, {'map': bridge.map_json()})
+            elif url.path == '/rosout':
+                q = parse_qs(url.query)
+                self.reply(200, bridge.rosout_state(int(q.get('since', ['0'])[0] or 0)))
             elif url.path == '/scripts':
                 self.reply(200, {'scripts': ScriptRunner.list()})
             else:
@@ -395,6 +473,8 @@ def make_handler(bridge, restart):
                     return self.reply(200, {'ok': True, 'msg': bridge.save_map(str(body.get('name', '')).strip())})
                 elif self.path == '/resetmap':
                     bridge.reset_map()
+                elif self.path == '/ros2':
+                    return self.reply(200, bridge.ros2(str(body.get('cmd', ''))))
                 elif self.path == '/run':
                     bridge.run_script(str(body.get('name', '')))
                 elif self.path == '/domain':
