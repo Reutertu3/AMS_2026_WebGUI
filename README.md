@@ -61,12 +61,15 @@ in its settings. Without a running agent, nothing from the robot shows up in ROS
    - **DomainID** = `12`
 
    The laptop gets its IP from DHCP. If it changes, the robot can't find the agent anymore.
-3. **Build the robot's message definitions** (for `calibrate_gyro`):
+3. **Robot message definitions** (for `calibrate_gyro`): `./start.sh` builds them the first time
+   (~1 min, step "Robot messages"). By hand:
    ```bash
    ./ros.sh colcon build --base-paths src --packages-select edurob_interfaces
    ```
-   This creates `build/`, `install/` and `log/`. `ros.sh` loads `install/` automatically.
-   Without this step everything else still works, only the gyro calibration says it isn't available.
+   This creates `build/`, `install/` and `log/` (not in git). `ros.sh` loads `install/` automatically.
+   Without them everything else still works, only the gyro calibration says it isn't available.
+   If you build by hand while the web page is running, restart it (`docker stop edurob-webui`,
+   `./start.sh`): scripts started from the page only see the messages after that.
 
 There is nothing to compile: scripts are run directly.
 

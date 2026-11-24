@@ -139,8 +139,30 @@ if [ $SLAM = 1 ]; then
   fi
 fi
 
+# The robot's message definitions (src/edurob_interfaces, needed for the gyro calibration) are built
+# once into install/ (not in git). The web server and the scripts it starts load them when it starts.
+step "Robot messages (edurob_interfaces)"
+BUILT=0
+if [ -f install/setup.bash ] && [ -f install/edurob_interfaces/share/edurob_interfaces/package.bash ]; then
+  ok "built"
+else
+  printf '%s' "${D}building once (~1 min)... ${N}"
+  if ./ros.sh colcon build --base-paths src --packages-select edurob_interfaces </dev/null >/dev/null 2>&1; then
+    ok "built"
+    BUILT=1
+  else
+    fail "build failed"
+    hint "./ros.sh colcon build --base-paths src --packages-select edurob_interfaces"
+    hint "Everything else works without it, only the gyro calibration doesn't."
+  fi
+fi
+
 step "Web control (port $PORT)"
 restart_if_ip_changed edurob-webui
+if [ $BUILT = 1 ] && running edurob-webui; then
+  stop_container edurob-webui  # started without the robot messages: restart so it loads them
+  RESTARTED=" (to load the robot messages)"
+fi
 if running edurob-webui; then note "already running"; else
   # the slam image = the normal one + slam_toolbox, so the page can reset the map ("New map")
   image=osrf/ros:kilted-desktop
