@@ -221,7 +221,7 @@
       <input type="text" id="pycmdin" placeholder="forward(0.1, 0.3); rotate_left(90, 30)" autocomplete="off" spellcheck="false" aria-label="Python command">
       <button class="primary" id="pycmdbtn">Run</button>
     </form>
-    <p class="muted">Python with <code>motion.py</code> already imported, separate commands with <code>;</code>.
+    <p class="muted">Python with <code>motion.py</code> and <code>gripper.py</code> already imported, separate commands with <code>;</code>.
       Runs like a script (STOP ends it), starting takes ~2 s.</p>
     <p class="muted" id="scriptstate">Manual driving is blocked while a script runs. STOP ends the script.</p>
   </section>
@@ -486,10 +486,25 @@ function showScript(sc) {
 }
 const runSelected = $("run").onclick;
 // Python command line: runs like a script, its output goes to the same log
+// ↑/↓ walk through earlier commands, like a terminal (kept in this browser, newest last)
+let pyHist = [];
+try { pyHist = JSON.parse(store.get("pyhist", "[]")); } catch {}
+let pyPos = pyHist.length, pyDraft = "";  // pyPos = length: editing a new line (pyDraft)
+$("pycmdin").addEventListener("keydown", (e) => {
+  if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+  e.preventDefault();
+  if (pyPos === pyHist.length) pyDraft = $("pycmdin").value;
+  pyPos = Math.max(0, Math.min(pyHist.length, pyPos + (e.key === "ArrowUp" ? -1 : 1)));
+  $("pycmdin").value = pyPos === pyHist.length ? pyDraft : pyHist[pyPos];
+});
 $("pycmd").onsubmit = async (e) => {
   e.preventDefault();
   const code = $("pycmdin").value.trim();
   if (!code) return;
+  if (pyHist[pyHist.length - 1] !== code) pyHist = [...pyHist, code].slice(-50);
+  store.set("pyhist", JSON.stringify(pyHist));
+  pyPos = pyHist.length;
+  pyDraft = "";
   held.clear();
   try {
     const r = await fetch("/runcode", { method: "POST", headers: { "Content-Type": "application/json" },

@@ -174,6 +174,8 @@ fi
 
 # ---------- robot data (asked from the web server) ----------
 section "Robot data"
+# the web server keeps the last scan forever: only scans from the last 2 s count
+scan_fresh() { case "$state" in *'"scan_hz": 0.0'*|*'"scan": null'*) return 1 ;; *'"scan": {'*) return 0 ;; *) return 1 ;; esac; }
 step "Waiting for odometry and lidar"
 state=""
 for _ in $(seq 30); do
@@ -183,7 +185,7 @@ for _ in $(seq 30); do
     exit 1
   fi
   state=$(curl -s -m 1 "http://localhost:$PORT/state" 2>/dev/null)
-  case "$state" in *'"source": "robot"'*'"scan": {'*) break ;; esac
+  case "$state" in *'"source": "robot"'*) scan_fresh && break ;; esac
   printf '%s' "${D}.${N}"
   sleep 1
 done
@@ -196,10 +198,8 @@ case "$state" in
      else hint "Reboot the robot (http://$ROBOT_IP/ → Reboot ESP32), then run ./start.sh again."; fi ;;
 esac
 step "Lidar"
-case "$state" in
-  *'"scan": {'*) ok "ok" ;;
-  *) fail "none"; hint "Comes back by itself ~20 s after a robot reboot. Otherwise: lidar powered? docker logs rplidar" ;;
-esac
+if scan_fresh; then ok "ok"
+else fail "none"; hint "Comes back by itself ~20 s after a robot reboot. Otherwise: lidar powered? docker logs rplidar"; fi
 if [ $SLAM = 1 ]; then
   step "Map"
   case "$state" in

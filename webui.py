@@ -99,13 +99,13 @@ class ScriptRunner:
         self._spawn(name, [os.path.join(SCRIPTS, name)], f'$ python3 scripts/{name}')
 
     def start_code(self, code):
-        """Python typed in the page, e.g. forward(0.1, 0.3); rotate_left(90, 30). motion.py is already imported."""
+        """Python typed in the page, e.g. forward(0.1, 0.3); rotate_left(90, 30). motion.py and gripper.py are already imported."""
         code = code.strip()
         if not code:
             raise ValueError('type a command, e.g. forward(0.1, 0.3)')
         if len(code) > CODE_MAX:
             raise ValueError(f'too long (max {CODE_MAX} characters)')
-        self._spawn('command', ['-c', 'from motion import *\n' + code], '>>> ' + code)
+        self._spawn('command', ['-c', 'from motion import *\nfrom gripper import *\n' + code], '>>> ' + code)
 
     def _spawn(self, name, args, header):
         """Start python3 <args> as its own process, its output goes to the log."""

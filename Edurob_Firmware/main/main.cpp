@@ -10,6 +10,7 @@
 #include "webserver.h"
 #include "mdns.h"
 #include "esp_mac.h"
+#include "servo.h"
 
 #define TAG "Main"
 
@@ -113,6 +114,14 @@ extern "C" void app_main(void)
   char IPBuffer[16];
   micro_ros_init(std::string(esp_ip4addr_ntoa(&AgentIP, IPBuffer, sizeof(IPBuffer))), std::to_string(Params.GetMicroROSAgentPort()), Params.GetROSDomainID(), Drive);
 
+  EduRobV2::Servo::Init();
+  // EduRobV2::Servo::SetTorque(false);         // For manual calibration
+  // Non-blocking, returns immediately. Also callable over ROS 2: /gripper/sweep
+  // WaitIdle() between commands, otherwise the next command cancels the running one.
+  EduRobV2::Servo::Sweep(2, EduRobV2::Servo::DefaultSpeedPct, EduRobV2::Servo::DefaultForcePct);
+  EduRobV2::Servo::WaitIdle(30000);
+  EduRobV2::Servo::Release(10, 10);
+
   //Drive->SetMode(PoseControlMode::Manual);
   //Drive->SetRobotVel({0.1, 0.0, 0.0});
 
@@ -122,5 +131,9 @@ extern "C" void app_main(void)
     xTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(1000));
     Drive.GetGyroOdomPose(OdoPose);
     printf("OdoPose: %f, %f, %f, %f\n", OdoPose.x, OdoPose.y, float(OdoPose.theta), imu.getGyroTheta());
+    EduRobV2::Servo::State Gripper;
+    if (EduRobV2::Servo::GetState(Gripper)) {
+      printf("Gripper: %.1f deg, %.0f mA, gripping %d, busy %d\n", Gripper.PositionDeg, Gripper.CurrentmA, Gripper.Gripping, Gripper.Busy);
+    }
   }
 }

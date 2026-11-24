@@ -23,6 +23,7 @@ Everything runs in Docker (ROS 2 Kilted), so nothing ROS-related has to be insta
 | `ros.sh` | Runs a command in the ROS 2 container. `--turtle` uses turtlesim instead of the robot. |
 | `webui.py` / `webui.html` | Web control (server + page). |
 | `motion.py` | All movement helpers for scripts (`from motion import *`). |
+| `gripper.py` | Gripper helpers for scripts (`from gripper import *`): `grip()`, `release()`, ... See [GRIPPER.md](GRIPPER.md). |
 | `edurobot.py` | ROS plumbing behind `motion.py` (connection, odometry, send limit, `LATENCY`). |
 | `scripts/` | Movement scripts. The web page lists every `*.py` in it (except names starting with `_`). |
 | `src/edurob_interfaces` | Message definitions of the robot (needed for the gyro calibration). |

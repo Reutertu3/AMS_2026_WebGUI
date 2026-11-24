@@ -10,7 +10,8 @@ while true; do
   ros2 launch sllidar_ros2 sllidar_s1_tcp_launch.py tcp_port:=44227 tcp_ip:="$1" frame_id:=laser_fix &
   pid=$!
   sleep 10  # time to connect
-  while timeout 10 ros2 topic echo --once /scan --field header.stamp.sec >/dev/null 2>&1; do
+  # -k: ros2 topic echo sometimes ignores SIGTERM and hangs forever, which froze the watchdog
+  while timeout -k 3 10 ros2 topic echo --once /scan --field header.stamp.sec >/dev/null 2>&1; do
     sleep 5
   done
   echo "[watchdog] no /scan for 10 s, restarting the lidar driver"
